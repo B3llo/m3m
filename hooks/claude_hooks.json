@@ -3,13 +3,13 @@
     "SessionStart": [
       {
         "type": "command",
-        "command": "agent-m3m context"
+        "command": "m3m context"
       }
     ],
     "Stop": [
       {
         "type": "command",
-        "command": "agent-m3m save --stdin"
+        "command": "m3m save --stdin"
       }
     ]
   }

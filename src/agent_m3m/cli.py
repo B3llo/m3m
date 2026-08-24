@@ -17,7 +17,7 @@ from .models import MemoryScope, MemoryStatus
 
 def main():
     parser = argparse.ArgumentParser(
-        prog="agent-m3m",
+        prog="m3m",
         description="Local-first persistent memory for AI coding agents with Markdown as Source of Truth",
     )
     subparsers = parser.add_subparsers(dest="command", help="Available subcommands")
