@@ -26,7 +26,7 @@ class MemoryStore:
         self.project_dir = self.config.project_dir
 
     def init_global(self) -> Path:
-        """Initialize global memory directory structure."""
+        """Initialize global memory directory structure with clean empty headers."""
         self.global_dir.mkdir(parents=True, exist_ok=True)
         for sub in self.SUBDIRS:
             (self.global_dir / sub).mkdir(exist_ok=True)
@@ -37,18 +37,15 @@ class MemoryStore:
         if not core_file.exists():
             core_file.write_text(
                 "# Global Core Memory\n\n"
-                "## Preferences\n"
-                "- Prefers local solutions over SaaS services.\n"
-                "- Prefers pnpm over npm for Node.js projects.\n\n"
-                "## Universal Conventions\n"
-                "- Write modular, well-tested, clean code.\n",
+                "## Preferences\n\n"
+                "## Universal Conventions\n",
                 encoding="utf-8",
             )
         self.config.save_default_config()
         return self.global_dir
 
     def init_project(self, project_path: Optional[Path] = None) -> Path:
-        """Initialize project memory directory structure."""
+        """Initialize project memory directory structure with clean empty headers."""
         target_dir = project_path or (Path.cwd().resolve() / ".agent-m3m")
         self.project_dir = target_dir
 
@@ -63,8 +60,7 @@ class MemoryStore:
             proj_name = target_dir.parent.name
             core_file.write_text(
                 f"# Project Core Memory: {proj_name}\n\n"
-                "## Project Decisions\n"
-                "- Add key project decisions here.\n",
+                "## Project Decisions\n",
                 encoding="utf-8",
             )
 
