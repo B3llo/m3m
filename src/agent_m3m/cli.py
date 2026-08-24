@@ -13,11 +13,12 @@ from .extractor import MemoryExtractor
 from .context import ContextBuilder
 from .doctor import Doctor
 from .hooks_installer import HooksInstaller
+from .importer import MemoryImporter
 from .models import MemoryScope, MemoryStatus
 
 
-def run_interactive_setup(config: Config):
-    """Interactive wizard to configure LLM provider, model, and effort level."""
+def run_interactive_setup(config: Config, store: MemoryStore):
+    """Interactive wizard to configure LLM provider, model, effort level, and import legacy memories."""
     print("\n=== m3m Configuration Setup ===")
     print("Select LLM Provider for background memory extraction:")
     print("  1) OpenAI Codex CLI (Uses your existing Codex subscription/plan) [Default]")
@@ -55,6 +56,23 @@ def run_interactive_setup(config: Config):
     print(f"  - Model: {config.model_name}")
     print(f"  - Effort: {config.reasoning_effort}\n")
 
+    # Check for legacy memory sources to import
+    importer = MemoryImporter(store, config)
+    sources = importer.scan_sources()
+    if sources:
+        print("--- Legacy Memory Scanner ---")
+        print("Found existing memory sources that can be migrated into m3m:")
+        for idx, (name, path, count) in enumerate(sources, 1):
+            print(f"  [{idx}] {name} ({count} items)")
+        
+        mig = input("\nDo you want to import/migrate these memories into m3m now? [Y/n]: ").strip().lower()
+        if mig in ["", "y", "yes"]:
+            total_imported = 0
+            for _, path, _ in sources:
+                imported = importer.import_from_source(path)
+                total_imported += len(imported)
+            print(f"✓ Successfully imported {total_imported} legacy memories into m3m!\n")
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -64,12 +82,16 @@ def main():
     subparsers = parser.add_subparsers(dest="command", help="Available subcommands")
 
     # init
-    init_parser = subparsers.add_parser("init", help="Initialize memory directory structure and wire hooks")
+    init_parser = subparsers.add_parser("init", help="Initialize memory directory structure, wire hooks, and import legacy memories")
     init_parser.add_argument("--global", dest="is_global", action="store_true", help="Initialize global ~/.agent-m3m")
     init_parser.add_argument("--provider", choices=["codex", "claude", "opencode", "kimi"], help="Active LLM provider")
     init_parser.add_argument("--model", type=str, help="LLM model name (e.g. luna, haiku)")
     init_parser.add_argument("--effort", choices=["low", "medium", "high"], help="Reasoning effort level")
     init_parser.add_argument("--non-interactive", action="store_true", help="Skip interactive prompt wizard")
+
+    # import / migrate
+    import_parser = subparsers.add_parser("import", help="Import / migrate memories from legacy tools (claude-mem, agentmemory, CLAUDE.md, etc.)")
+    import_parser.add_argument("--path", type=str, help="Specific file or folder path to import")
 
     # context
     context_parser = subparsers.add_parser("context", help="Output Core Memory context for agent session start")
@@ -121,7 +143,7 @@ def main():
     if args.command == "init":
         # Interactive configuration if interactive shell
         if sys.stdin.isatty() and not getattr(args, "non_interactive", False) and not (args.provider or args.model):
-            run_interactive_setup(config)
+            run_interactive_setup(config, store)
         else:
             if args.provider:
                 config.active_provider = args.provider
@@ -148,6 +170,29 @@ def main():
             print(f"[{symbol}] {name}: {msg}")
 
         print("\n✓ Setup completed successfully! Whenever you run Codex CLI or Claude Code, your memory will be loaded on start and updated on stop.")
+
+    elif args.command == "import":
+        importer = MemoryImporter(store, config)
+        if args.path:
+            target_path = Path(args.path)
+            if not target_path.exists():
+                print(f"Error: Path '{args.path}' does not exist.", file=sys.stderr)
+                sys.exit(1)
+            imported = importer.import_from_source(target_path)
+            print(f"✓ Successfully imported {len(imported)} memories from {target_path}.")
+        else:
+            sources = importer.scan_sources()
+            if not sources:
+                print("No legacy memory sources found automatically.")
+                return
+
+            print("Found the following legacy memory sources:")
+            total = 0
+            for name, path, count in sources:
+                print(f"  - Importing from {name} ({count} items)...")
+                imported = importer.import_from_source(path)
+                total += len(imported)
+            print(f"\n✓ Successfully imported {total} legacy memories into m3m!")
 
     elif args.command == "context":
         builder = ContextBuilder(store, retriever, config)
