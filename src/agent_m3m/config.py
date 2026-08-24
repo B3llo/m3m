@@ -11,11 +11,13 @@ class Config:
         global_path: Optional[Path] = None,
         project_path: Optional[Path] = None,
     ):
-        self.home_dir = Path.home()
+        self.home_dir = Path.home().resolve()
         self.global_dir = global_path or (self.home_dir / ".agent-m3m")
         self.project_dir = project_path or self._find_project_dir()
         
         self.active_provider = "codex"
+        self.model_name = "luna"
+        self.reasoning_effort = "low"
         self.codex_command = "codex exec"
         self.claude_command = "claude -p"
         self.opencode_command = "opencode run"
@@ -30,18 +32,24 @@ class Config:
         self.load()
 
     def _find_project_dir(self) -> Optional[Path]:
-        """Check current working directory and parent directories for .agent-m3m."""
+        """Check current working directory and parent directories for .agent-m3m, excluding home dir."""
         cwd = Path.cwd().resolve()
         current = cwd
+
+        # Stop search if we reach home directory or root
         while current != current.parent:
+            if current == self.home_dir:
+                break
             candidate = current / ".agent-m3m"
             if candidate.is_dir():
                 return candidate
             if (current / ".git").is_dir():
-                # Root of git repo
                 return current / ".agent-m3m"
             current = current.parent
-        return cwd / ".agent-m3m"
+
+        if cwd != self.home_dir:
+            return cwd / ".agent-m3m"
+        return None
 
     @property
     def config_file(self) -> Path:
@@ -63,6 +71,8 @@ class Config:
             
             prov = data.get("providers", {})
             self.active_provider = prov.get("active_provider", self.active_provider)
+            self.model_name = prov.get("model_name", self.model_name)
+            self.reasoning_effort = prov.get("reasoning_effort", self.reasoning_effort)
             self.codex_command = prov.get("codex_command", self.codex_command)
             self.claude_command = prov.get("claude_command", self.claude_command)
             self.opencode_command = prov.get("opencode_command", self.opencode_command)
@@ -111,27 +121,31 @@ class Config:
                 data[current_section][key] = v
         return data
 
-    def save_default_config(self):
-        """Save a default config.toml if missing."""
+    def save_config(self):
+        """Save config parameters to config.toml."""
         self.global_dir.mkdir(parents=True, exist_ok=True)
-        if self.config_file.exists():
-            return
-
-        default_toml = (
+        toml_content = (
             "# agent-m3m configuration file\n\n"
             "[general]\n"
-            "secret_scrubbing = true\n"
-            "max_core_lines = 50\n\n"
+            f"secret_scrubbing = {str(self.secret_scrubbing).lower()}\n"
+            f"max_core_lines = {self.max_core_lines}\n\n"
             "[providers]\n"
-            'active_provider = "codex"\n'
-            'codex_command = "codex exec"\n'
-            'claude_command = "claude -p"\n'
-            'opencode_command = "opencode run"\n'
-            'kimi_command = "kimi"\n\n'
+            f'active_provider = "{self.active_provider}"\n'
+            f'model_name = "{self.model_name}"\n'
+            f'reasoning_effort = "{self.reasoning_effort}"\n'
+            f'codex_command = "{self.codex_command}"\n'
+            f'claude_command = "{self.claude_command}"\n'
+            f'opencode_command = "{self.opencode_command}"\n'
+            f'kimi_command = "{self.kimi_command}"\n\n'
             "[retrieval]\n"
-            "top_candidates = 20\n"
-            "top_results = 5\n"
-            "llm_rerank = false\n"
+            f"top_candidates = {self.top_candidates}\n"
+            f"top_results = {self.top_results}\n"
+            f"llm_rerank = {str(self.llm_rerank).lower()}\n"
         )
         with open(self.config_file, "w", encoding="utf-8") as f:
-            f.write(default_toml)
+            f.write(toml_content)
+
+    def save_default_config(self):
+        """Save a default config.toml if missing."""
+        if not self.config_file.exists():
+            self.save_config()

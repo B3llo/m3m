@@ -49,10 +49,9 @@ class MemoryStore:
 
     def init_project(self, project_path: Optional[Path] = None) -> Path:
         """Initialize project memory directory structure."""
-        target_dir = project_path or self.project_dir
-        if not target_dir:
-            target_dir = Path.cwd() / ".agent-m3m"
-        
+        target_dir = project_path or (Path.cwd().resolve() / ".agent-m3m")
+        self.project_dir = target_dir
+
         target_dir.mkdir(parents=True, exist_ok=True)
         for sub in self.SUBDIRS:
             (target_dir / sub).mkdir(exist_ok=True)

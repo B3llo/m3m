@@ -12,7 +12,48 @@ from .retriever import MemoryRetriever
 from .extractor import MemoryExtractor
 from .context import ContextBuilder
 from .doctor import Doctor
+from .hooks_installer import HooksInstaller
 from .models import MemoryScope, MemoryStatus
+
+
+def run_interactive_setup(config: Config):
+    """Interactive wizard to configure LLM provider, model, and effort level."""
+    print("\n=== m3m Configuration Setup ===")
+    print("Select LLM Provider for background memory extraction:")
+    print("  1) OpenAI Codex CLI (Uses your existing Codex subscription/plan) [Default]")
+    print("  2) Claude Code CLI (Uses your existing Claude Code setup)")
+    print("  3) OpenCode CLI")
+    print("  4) Kimi CLI")
+    
+    choice = input("Select provider [1-4, Default: 1]: ").strip()
+    if choice == "2":
+        config.active_provider = "claude"
+        default_model = "haiku"
+    elif choice == "3":
+        config.active_provider = "opencode"
+        default_model = "default"
+    elif choice == "4":
+        config.active_provider = "kimi"
+        default_model = "default"
+    else:
+        config.active_provider = "codex"
+        default_model = "luna"
+
+    model_input = input(f"Model name for background memory extraction [Default: {default_model}]: ").strip()
+    config.model_name = model_input if model_input else default_model
+
+    if config.active_provider == "codex":
+        effort_input = input("Reasoning effort for Codex (low/medium/high) [Default: low]: ").strip().lower()
+        if effort_input in ["low", "medium", "high"]:
+            config.reasoning_effort = effort_input
+        else:
+            config.reasoning_effort = "low"
+
+    config.save_config()
+    print(f"\n✓ Configuration saved to {config.config_file}")
+    print(f"  - Active Provider: {config.active_provider}")
+    print(f"  - Model: {config.model_name}")
+    print(f"  - Effort: {config.reasoning_effort}\n")
 
 
 def main():
@@ -23,8 +64,12 @@ def main():
     subparsers = parser.add_subparsers(dest="command", help="Available subcommands")
 
     # init
-    init_parser = subparsers.add_parser("init", help="Initialize memory directory structure")
+    init_parser = subparsers.add_parser("init", help="Initialize memory directory structure and wire hooks")
     init_parser.add_argument("--global", dest="is_global", action="store_true", help="Initialize global ~/.agent-m3m")
+    init_parser.add_argument("--provider", choices=["codex", "claude", "opencode", "kimi"], help="Active LLM provider")
+    init_parser.add_argument("--model", type=str, help="LLM model name (e.g. luna, haiku)")
+    init_parser.add_argument("--effort", choices=["low", "medium", "high"], help="Reasoning effort level")
+    init_parser.add_argument("--non-interactive", action="store_true", help="Skip interactive prompt wizard")
 
     # context
     context_parser = subparsers.add_parser("context", help="Output Core Memory context for agent session start")
@@ -74,12 +119,35 @@ def main():
     retriever = MemoryRetriever(store, config)
 
     if args.command == "init":
+        # Interactive configuration if interactive shell
+        if sys.stdin.isatty() and not getattr(args, "non_interactive", False) and not (args.provider or args.model):
+            run_interactive_setup(config)
+        else:
+            if args.provider:
+                config.active_provider = args.provider
+            if args.model:
+                config.model_name = args.model
+            if args.effort:
+                config.reasoning_effort = args.effort
+            config.save_config()
+
         if getattr(args, "is_global", False):
             path = store.init_global()
             print(f"✓ Initialized global memory at {path}")
         else:
-            path = store.init_project()
+            target_proj = Path.cwd().resolve() / ".agent-m3m"
+            path = store.init_project(target_proj)
             print(f"✓ Initialized project memory at {path}")
+
+        # Automatically wire agent hooks
+        print("\n--- Wiring Agent Lifecycle Hooks ---")
+        installer = HooksInstaller(home_dir=config.home_dir)
+        hook_results = installer.install_all()
+        for name, msg, ok in hook_results:
+            symbol = "✓" if ok else "✗"
+            print(f"[{symbol}] {name}: {msg}")
+
+        print("\n✓ Setup completed successfully! Whenever you run Codex CLI or Claude Code, your memory will be loaded on start and updated on stop.")
 
     elif args.command == "context":
         builder = ContextBuilder(store, retriever, config)
