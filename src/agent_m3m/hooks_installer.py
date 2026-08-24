@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 
 
 class HooksInstaller:
@@ -53,10 +53,11 @@ class HooksInstaller:
             return ("Claude Code Hooks", f"Failed to write settings: {e}", False)
 
     def install_codex_hooks(self) -> Tuple[str, str, bool]:
-        """Wire hooks into ~/.codex/hooks.json."""
+        """Wire hooks into ~/.codex/hooks.json and enable them in config.toml."""
         codex_dir = self.home_dir / ".codex"
         codex_dir.mkdir(parents=True, exist_ok=True)
         hooks_file = codex_dir / "hooks.json"
+        config_file = codex_dir / "config.toml"
 
         data: Dict[str, Any] = {}
         if hooks_file.is_file():
@@ -84,6 +85,26 @@ class HooksInstaller:
 
         try:
             hooks_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
-            return ("OpenAI Codex Hooks", f"Wired automatically in {hooks_file}", True)
+
+            # Also ensure hooks.state is enabled in config.toml if it exists
+            if config_file.is_file():
+                config_content = config_file.read_text(encoding="utf-8")
+                if "[hooks.state]" in config_content:
+                    # Replace enabled = false under m3m hooks with enabled = true
+                    lines = config_content.splitlines()
+                    new_lines = []
+                    in_m3m_state = False
+                    for line in lines:
+                        if "hooks.json:stop" in line or "hooks.json:session_start" in line:
+                            in_m3m_state = True
+                        elif line.startswith("[") and not ("stop" in line or "session_start" in line):
+                            in_m3m_state = False
+
+                        if in_m3m_state and "enabled = false" in line:
+                            line = "enabled = true"
+                        new_lines.append(line)
+                    config_file.write_text("\n".join(new_lines), encoding="utf-8")
+
+            return ("OpenAI Codex Hooks", f"Wired & enabled in {hooks_file}", True)
         except Exception as e:
             return ("OpenAI Codex Hooks", f"Failed to write hooks: {e}", False)

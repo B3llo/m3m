@@ -5,6 +5,7 @@ import sys
 import json
 from pathlib import Path
 from typing import Optional
+from datetime import datetime
 
 from .config import Config
 from .store import MemoryStore
@@ -15,6 +16,17 @@ from .doctor import Doctor
 from .hooks_installer import HooksInstaller
 from .importer import MemoryImporter
 from .models import MemoryScope, MemoryStatus
+
+
+def log_hook_event(msg: str):
+    """Write hook execution logs to ~/.agent-m3m/sessions/m3m_hooks.log."""
+    try:
+        log_file = Path.home() / ".agent-m3m" / "sessions" / "m3m_hooks.log"
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(f"[{datetime.now().isoformat()}] {msg}\n")
+    except Exception:
+        pass
 
 
 def run_interactive_setup(config: Config, store: MemoryStore):
@@ -195,6 +207,7 @@ def main():
             print(f"\n✓ Successfully imported {total} legacy memories into m3m!")
 
     elif args.command == "context":
+        log_hook_event("Hook 'm3m context' executed")
         builder = ContextBuilder(store, retriever, config)
         print(builder.build_context())
 
@@ -233,20 +246,39 @@ def main():
                 print()
 
     elif args.command == "save":
-        transcript = ""
+        raw_input = ""
         if args.transcript_file:
             path = Path(args.transcript_file)
             if path.exists():
-                transcript = path.read_text(encoding="utf-8")
+                raw_input = path.read_text(encoding="utf-8")
         elif args.stdin or not sys.stdin.isatty():
-            transcript = sys.stdin.read()
+            raw_input = sys.stdin.read()
+
+        transcript = raw_input
+        # If stdin is JSON payload from hook (e.g. Codex or Claude Code), parse transcript_path or content
+        if raw_input.strip().startswith("{"):
+            try:
+                payload = json.loads(raw_input)
+                t_path = payload.get("transcript_path") or payload.get("transcript_file") or payload.get("log_file")
+                if t_path and Path(t_path).is_file():
+                    transcript = Path(t_path).read_text(encoding="utf-8")
+                elif "transcript" in payload and isinstance(payload["transcript"], str):
+                    transcript = payload["transcript"]
+                elif "last_user_prompt" in payload or "last_assistant_message" in payload:
+                    user_p = payload.get("last_user_prompt", "")
+                    asst_m = payload.get("last_assistant_message", "")
+                    transcript = f"USER: {user_p}\nASSISTANT: {asst_m}"
+            except Exception as e:
+                log_hook_event(f"Error parsing JSON payload: {e}")
 
         if not transcript.strip():
-            print("No transcript content provided for extraction.", file=sys.stderr)
-            sys.exit(1)
+            log_hook_event("Hook 'm3m save' called with empty transcript payload.")
+            sys.exit(0)
 
         extractor = MemoryExtractor(store, retriever, llm_runner=None, config=config)
         saved = extractor.extract_from_transcript(transcript, provider=args.provider)
+
+        log_hook_event(f"Hook 'm3m save' executed. Saved {len(saved)} new memories.")
         print(f"✓ Saved {len(saved)} new memories.")
         for item in saved:
             print(f"  - {item.id}: {item.content[:70]}...")
@@ -286,10 +318,11 @@ def main():
         print("=== agent-m3m doctor ===\n")
         all_ok = True
         for name, msg, ok in results:
-            symbol = "✓" if ok else "✗"
+            symbol = "✓" if ok else "lexeme"
             if not ok:
                 all_ok = False
-            print(f"[{symbol}] {name}: {msg}")
+            symbol_char = "✓" if ok else "✗"
+            print(f"[{symbol_char}] {name}: {msg}")
         print()
         if all_ok:
             print("System status: HEALTHY")
