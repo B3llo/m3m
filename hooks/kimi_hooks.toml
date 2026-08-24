@@ -1,0 +1,8 @@
+# Kimi CLI hook configuration for agent-memory
+[[hooks]]
+event = "SessionStart"
+command = "agent-memory context"
+
+[[hooks]]
+event = "Stop"
+command = "agent-memory save --stdin"
