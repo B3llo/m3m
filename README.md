@@ -1,8 +1,8 @@
-# agent-m3m
+# agent-m3m (`m3m`)
 
 > **Local-first persistent memory for AI coding agents with Markdown as the Source of Truth.**
 
-`agent-m3m` is an open-source, local-first memory framework designed for developers using AI coding agents (**OpenAI Codex CLI**, **Claude Code**, **OpenCode**, **Kimi CLI**, **Kiro**, **Gemini CLI**, and others).
+`m3m` is an open-source, local-first memory framework designed for developers using AI coding agents (**OpenAI Codex CLI**, **Claude Code**, **OpenCode**, **Kimi CLI**, **Kiro**, **Gemini CLI**, and others).
 
 It gives you a **universal personal memory** across different agents without locking you into a single tool or requiring external SaaS, vector databases, or background servers.
 
@@ -33,21 +33,10 @@ It gives you a **universal personal memory** across different agents without loc
 ```
 
 1. **Markdown = Source of Truth (SSOT):** All durable memories are saved as human-readable Markdown files with YAML frontmatter in `~/.agent-m3m/` (global) or `<repo>/.agent-m3m/` (project).
-2. **Disposable Indexes:** All search indexes (SQLite FTS5) are derived. If deleted, `agent-m3m reindex` rebuilds them 100% faithfully from your Markdown files.
+2. **Disposable Indexes:** All search indexes (SQLite FTS5) are derived. If deleted, `m3m reindex` rebuilds them 100% faithfully from your Markdown files.
 3. **Progressive Disclosure:** Injects concise **Core Memory** at session start, and retrieves topic-specific **Archival Memories** dynamically per prompt or query.
 4. **Deterministic Secret Sanitization:** Regex-based scrubbing guarantees that API keys, tokens, and passwords never reach memory files.
 5. **Conflict & Evolution Management:** Superseded preferences (e.g. switching from `npm` to `pnpm`) mark old memories as `superseded` rather than corrupting history or creating duplicate noise.
-
----
-
-## ⚡ Performance Benchmark
-
-Benchmarked on local macOS machine with synthetic memory scale:
-
-| Memories | FTS5 DB Size | Reindex Time | Avg Search Latency |
-| :--- | :--- | :--- | :--- |
-| **100** | 84 KB | 4 ms | **0.21 ms** |
-| **1,000** | 504 KB | 27 ms | **0.70 ms** |
 
 ---
 
@@ -74,20 +63,20 @@ pip install -e .
 Initialize your global memory store (`~/.agent-m3m/`):
 
 ```bash
-agent-m3m init --global
+m3m init --global
 ```
 
 Initialize project-level memory store (`.agent-m3m/`) inside any repository:
 
 ```bash
 cd ~/Documents/Projects/my-project
-agent-m3m init
+m3m init
 ```
 
 ### 3. Check System Health
 
 ```bash
-agent-m3m doctor
+m3m doctor
 ```
 
 ---
@@ -96,16 +85,16 @@ agent-m3m doctor
 
 | Command | Description |
 | :--- | :--- |
-| `agent-m3m init [--global]` | Initialize global (`~/.agent-m3m`) or local project memory (`.agent-m3m`). |
-| `agent-m3m context` | Output combined Core Memory for session start injection. |
-| `agent-m3m search "<query>"` | Fast local FTS5 search with BM25 + metadata ranking. Use `--debug` for score breakdown. |
-| `agent-m3m save [--stdin]` | Extract and save durable memories from a session transcript. |
-| `agent-m3m list` | List all active stored memories by scope or status. |
-| `agent-m3m show <id>` | Print full Markdown & YAML frontmatter of a memory by ID. |
-| `agent-m3m forget <id>` | Archive a memory by setting its status to `archived`. |
-| `agent-m3m reindex` | Rebuild SQLite FTS5 index completely from Markdown files. |
-| `agent-m3m clean` | Validate memory files and rebuild disposable index. |
-| `agent-m3m doctor` | Run diagnostic health checks on storage, config, and agent CLI binaries. |
+| `m3m init [--global]` | Initialize global (`~/.agent-m3m`) or local project memory (`.agent-m3m`). |
+| `m3m context` | Output combined Core Memory for session start injection. |
+| `m3m search "<query>"` | Fast local FTS5 search with BM25 + metadata ranking. Use `--debug` for score breakdown. |
+| `m3m save [--stdin]` | Extract and save durable memories from a session transcript. |
+| `m3m list` | List all active stored memories by scope or status. |
+| `m3m show <id>` | Print full Markdown & YAML frontmatter of a memory by ID. |
+| `m3m forget <id>` | Archive a memory by setting its status to `archived`. |
+| `m3m reindex` | Rebuild SQLite FTS5 index completely from Markdown files. |
+| `m3m clean` | Validate memory files and rebuild disposable index. |
+| `m3m doctor` | Run diagnostic health checks on storage, config, and agent CLI binaries. |
 
 ---
 
@@ -114,16 +103,7 @@ agent-m3m doctor
 Search uses a transparent scoring formula combining lexical BM25, entity matching, tag matching, project scope, status, and recency:
 
 ```bash
-agent-m3m search "pnpm" --debug
-```
-
-**Output:**
-```text
-Found 1 matching memories:
-
-1. [0.90] mem_20260824_a1b2c3d4 (global/preference)
-   Always prefer pnpm over npm or yarn in JS projects.
-   Breakdown: {'lexical': 0.4, 'entity_bonus': 0.15, 'tag_bonus': 0.1, 'project_bonus': 0.0, 'status_bonus': 0.2, 'recency_bonus': 0.05}
+m3m search "pnpm" --debug
 ```
 
 ---
@@ -138,13 +118,13 @@ Found 1 matching memories:
     "SessionStart": [
       {
         "type": "command",
-        "command": "agent-m3m context"
+        "command": "m3m context"
       }
     ],
     "Stop": [
       {
         "type": "command",
-        "command": "agent-m3m save --stdin"
+        "command": "m3m save --stdin"
       }
     ]
   }
@@ -159,13 +139,13 @@ Found 1 matching memories:
     "SessionStart": [
       {
         "type": "command",
-        "command": "agent-m3m context"
+        "command": "m3m context"
       }
     ],
     "Stop": [
       {
         "type": "command",
-        "command": "agent-m3m save --stdin"
+        "command": "m3m save --stdin"
       }
     ]
   }

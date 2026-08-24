@@ -1,8 +1,8 @@
-# Kimi CLI hook configuration for agent-m3m
+# Kimi CLI hook configuration for m3m
 [[hooks]]
 event = "SessionStart"
-command = "agent-m3m context"
+command = "m3m context"
 
 [[hooks]]
 event = "Stop"
-command = "agent-m3m save --stdin"
+command = "m3m save --stdin"

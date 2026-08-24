@@ -16,3 +16,7 @@ staging/
 
 # OS
 .DS_Store
+
+# agent-m3m temp caches
+.agent-m3m/sessions/
+.agent-m3m/.index/
