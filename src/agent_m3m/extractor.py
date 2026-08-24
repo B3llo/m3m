@@ -16,7 +16,7 @@ from .config import Config
 EXTRACTION_SYSTEM_PROMPT = """Analyze the provided AI coding session transcript and extract DURABLE, REUSABLE memories.
 
 Only extract:
-1. User preferences (e.g. preferred tools, package managers, local vs SaaS choices).
+1. User preferences & explicit instructions (e.g., "Lembra de não usar mais X", "Never use Y", preferred tools, package managers).
 2. Architectural decisions made for this project.
 3. Lessons learned (e.g. fixing a specific build error, package incompatibility).
 4. Coding conventions & rules explicitly requested.
@@ -162,24 +162,40 @@ class MemoryExtractor:
         """Deterministic regex rule fallback if LLM is unavailable."""
         items: List[MemoryItem] = []
         patterns = [
-            (r"(?i)(lembre-se|remember|always use|nunca use|always prefer)\s+([^\n.]+)", MemoryType.PREFERENCE),
-            (r"(?i)(decisão|decision|decidido|decided)\s*:\s*([^\n.]+)", MemoryType.DECISION),
-            (r"(?i)(erro|error|bug|solução|fix)\s*:\s*([^\n.]+)", MemoryType.LESSON),
+            (
+                r"(?i)(lembra|lembre|lembre-se|remember|nunca use|não usar|não use|do not use|never use|proibido|always use|sempre use|always prefer)\s+([^\n.]+)",
+                MemoryType.CONVENTION,
+            ),
+            (
+                r"(?i)(decisão|decision|decidido|decided)\s*:\s*([^\n.]+)",
+                MemoryType.DECISION,
+            ),
+            (
+                r"(?i)(erro|error|bug|solução|fix)\s*:\s*([^\n.]+)",
+                MemoryType.LESSON,
+            ),
         ]
 
         for pat, mtype in patterns:
             matches = re.findall(pat, text)
             for match in matches:
-                content_str = match[1].strip() if isinstance(match, tuple) else match.strip()
-                if len(content_str) < 10 or len(content_str) > 300:
+                if isinstance(match, tuple):
+                    verb = match[0].strip()
+                    detail = match[1].strip()
+                    content_str = f"{verb} {detail}"
+                else:
+                    content_str = match.strip()
+
+                if len(content_str) < 8 or len(content_str) > 300:
                     continue
+
                 mem_id = generate_memory_id()
                 item = MemoryItem(
                     id=mem_id,
                     content=content_str,
-                    scope=MemoryScope.GLOBAL,
+                    scope=MemoryScope.PROJECT,
                     type=mtype,
-                    confidence=0.8,
+                    confidence=0.85,
                     tags=["heuristic-fallback"],
                 )
                 items.append(item)
