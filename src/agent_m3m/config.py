@@ -1,13 +1,8 @@
-"""Configuration management for agent-memory."""
+"""Configuration management for agent-m3m."""
 
 import os
 from pathlib import Path
 from typing import Dict, Any, Optional
-
-try:
-    import tomllib  # Python 3.11+
-except ImportError:
-    import json as tomllib  # Fallback for simpler format parser if needed
 
 
 class Config:
@@ -17,7 +12,7 @@ class Config:
         project_path: Optional[Path] = None,
     ):
         self.home_dir = Path.home()
-        self.global_dir = global_path or (self.home_dir / ".agent-memory")
+        self.global_dir = global_path or (self.home_dir / ".agent-m3m")
         self.project_dir = project_path or self._find_project_dir()
         
         self.active_provider = "codex"
@@ -35,18 +30,18 @@ class Config:
         self.load()
 
     def _find_project_dir(self) -> Optional[Path]:
-        """Check current working directory and parent directories for .agent-memory."""
+        """Check current working directory and parent directories for .agent-m3m."""
         cwd = Path.cwd().resolve()
         current = cwd
         while current != current.parent:
-            candidate = current / ".agent-memory"
+            candidate = current / ".agent-m3m"
             if candidate.is_dir():
                 return candidate
             if (current / ".git").is_dir():
                 # Root of git repo
-                return current / ".agent-memory"
+                return current / ".agent-m3m"
             current = current.parent
-        return cwd / ".agent-memory"
+        return cwd / ".agent-m3m"
 
     @property
     def config_file(self) -> Path:
@@ -77,8 +72,7 @@ class Config:
             self.top_candidates = ret.get("top_candidates", self.top_candidates)
             self.top_results = ret.get("top_results", self.top_results)
             self.llm_rerank = ret.get("llm_rerank", self.llm_rerank)
-        except Exception as e:
-            # Fallback to default settings
+        except Exception:
             pass
 
     def _parse_simple_toml(self, content: str) -> Dict[str, Any]:
@@ -124,7 +118,7 @@ class Config:
             return
 
         default_toml = (
-            "# agent-memory configuration file\n\n"
+            "# agent-m3m configuration file\n\n"
             "[general]\n"
             "secret_scrubbing = true\n"
             "max_core_lines = 50\n\n"

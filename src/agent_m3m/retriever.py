@@ -1,4 +1,4 @@
-"""MemoryRetriever: SQLite FTS5 search index and ranking engine for agent-memory."""
+"""MemoryRetriever: SQLite FTS5 search index and ranking engine for agent-m3m."""
 
 import math
 from pathlib import Path

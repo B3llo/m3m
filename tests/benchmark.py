@@ -1,14 +1,14 @@
-"""Synthetic benchmark test for agent-memory scale performance."""
+"""Synthetic benchmark test for agent-m3m scale performance."""
 
 import time
 import tempfile
 import random
 from pathlib import Path
 
-from agent_memory.models import MemoryItem, MemoryScope, MemoryType, MemoryStatus, generate_memory_id
-from agent_memory.config import Config
-from agent_memory.store import MemoryStore
-from agent_memory.retriever import MemoryRetriever
+from agent_m3m.models import MemoryItem, MemoryScope, MemoryType, MemoryStatus, generate_memory_id
+from agent_m3m.config import Config
+from agent_m3m.store import MemoryStore
+from agent_m3m.retriever import MemoryRetriever
 
 
 SAMPLE_TAGS = ["docker", "terraform", "node", "python", "pnpm", "react", "postgres", "redis", "aws", "git"]

@@ -1,4 +1,4 @@
-"""CLI Interface for agent-memory."""
+"""CLI Interface for agent-m3m."""
 
 import argparse
 import sys
@@ -17,14 +17,14 @@ from .models import MemoryScope, MemoryStatus
 
 def main():
     parser = argparse.ArgumentParser(
-        prog="agent-memory",
+        prog="agent-m3m",
         description="Local-first persistent memory for AI coding agents with Markdown as Source of Truth",
     )
     subparsers = parser.add_subparsers(dest="command", help="Available subcommands")
 
     # init
     init_parser = subparsers.add_parser("init", help="Initialize memory directory structure")
-    init_parser.add_argument("--global", dest="is_global", action="store_true", help="Initialize global ~/.agent-memory")
+    init_parser.add_argument("--global", dest="is_global", action="store_true", help="Initialize global ~/.agent-m3m")
 
     # context
     context_parser = subparsers.add_parser("context", help="Output Core Memory context for agent session start")
@@ -170,7 +170,7 @@ def main():
     elif args.command == "doctor":
         doc = Doctor(config)
         results = doc.run_diagnostics()
-        print("=== agent-memory doctor ===\n")
+        print("=== agent-m3m doctor ===\n")
         all_ok = True
         for name, msg, ok in results:
             symbol = "✓" if ok else "✗"
