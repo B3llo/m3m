@@ -53,7 +53,7 @@ class HooksInstaller:
             return ("Claude Code Hooks", f"Failed to write settings: {e}", False)
 
     def install_codex_hooks(self) -> Tuple[str, str, bool]:
-        """Wire hooks into ~/.codex/hooks.json and enable them in config.toml."""
+        """Wire hooks into ~/.codex/hooks.json conforming to Codex CLI schema."""
         codex_dir = self.home_dir / ".codex"
         codex_dir.mkdir(parents=True, exist_ok=True)
         hooks_file = codex_dir / "hooks.json"
@@ -71,26 +71,45 @@ class HooksInstaller:
 
         hooks = data["hooks"]
 
+        context_entry = {
+            "matcher": "",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": "m3m context"
+                }
+            ]
+        }
+
+        save_entry = {
+            "matcher": "",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": "m3m save --stdin"
+                }
+            ]
+        }
+
         # Ensure SessionStart hook
         if "SessionStart" not in hooks:
             hooks["SessionStart"] = []
         if not any("m3m context" in str(h) for h in hooks["SessionStart"]):
-            hooks["SessionStart"].append({"type": "command", "command": "m3m context"})
+            hooks["SessionStart"].append(context_entry)
 
         # Ensure Stop hook
         if "Stop" not in hooks:
             hooks["Stop"] = []
         if not any("m3m save" in str(h) for h in hooks["Stop"]):
-            hooks["Stop"].append({"type": "command", "command": "m3m save --stdin"})
+            hooks["Stop"].append(save_entry)
 
         try:
             hooks_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
-            # Also ensure hooks.state is enabled in config.toml if it exists
+            # Enable hooks in config.toml if needed
             if config_file.is_file():
                 config_content = config_file.read_text(encoding="utf-8")
                 if "[hooks.state]" in config_content:
-                    # Replace enabled = false under m3m hooks with enabled = true
                     lines = config_content.splitlines()
                     new_lines = []
                     in_m3m_state = False
