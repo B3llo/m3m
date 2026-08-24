@@ -1,4 +1,4 @@
-"""Deterministic Secret Sanitizer for agent-memory.
+"""Deterministic Secret Sanitizer for agent-m3m.
 
 Filters out sensitive credentials, API keys, tokens, and private data before saving memories.
 """

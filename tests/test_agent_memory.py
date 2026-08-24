@@ -1,15 +1,15 @@
-"""Unit tests for agent-memory."""
+"""Unit tests for agent-m3m."""
 
 import tempfile
 import unittest
 from pathlib import Path
 
-from agent_memory.models import MemoryItem, MemoryScope, MemoryType, MemoryStatus, generate_memory_id
-from agent_memory.sanitizer import scrub_secrets, has_secrets
-from agent_memory.config import Config
-from agent_memory.store import MemoryStore
-from agent_memory.retriever import MemoryRetriever
-from agent_memory.doctor import Doctor
+from agent_m3m.models import MemoryItem, MemoryScope, MemoryType, MemoryStatus, generate_memory_id
+from agent_m3m.sanitizer import scrub_secrets, has_secrets
+from agent_m3m.config import Config
+from agent_m3m.store import MemoryStore
+from agent_m3m.retriever import MemoryRetriever
+from agent_m3m.doctor import Doctor
 
 
 class TestAgentMemory(unittest.TestCase):

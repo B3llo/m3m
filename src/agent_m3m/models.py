@@ -1,4 +1,4 @@
-"""Data models and frontmatter parsing for agent-memory."""
+"""Data models and frontmatter parsing for agent-m3m."""
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone

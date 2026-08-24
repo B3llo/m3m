@@ -51,7 +51,7 @@ class MemoryStore:
         """Initialize project memory directory structure."""
         target_dir = project_path or self.project_dir
         if not target_dir:
-            target_dir = Path.cwd() / ".agent-memory"
+            target_dir = Path.cwd() / ".agent-m3m"
         
         target_dir.mkdir(parents=True, exist_ok=True)
         for sub in self.SUBDIRS:
@@ -73,9 +73,9 @@ class MemoryStore:
         git_ignore = target_dir.parent / ".gitignore"
         if git_ignore.exists():
             content = git_ignore.read_text(encoding="utf-8")
-            if ".agent-memory/sessions" not in content:
+            if ".agent-m3m/sessions" not in content:
                 git_ignore.write_text(
-                    content + "\n# agent-memory temp caches\n.agent-memory/sessions/\n.agent-memory/.index/\n",
+                    content + "\n# agent-m3m temp caches\n.agent-m3m/sessions/\n.agent-m3m/.index/\n",
                     encoding="utf-8",
                 )
 

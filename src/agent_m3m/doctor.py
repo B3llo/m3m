@@ -1,4 +1,4 @@
-"""Doctor: System diagnostics and health checker for agent-memory."""
+"""Doctor: System diagnostics and health checker for agent-m3m."""
 
 import os
 import shutil
@@ -32,7 +32,7 @@ class Doctor:
         # 3. Project Directory
         proj_dir = self.config.project_dir
         proj_ok = proj_dir and proj_dir.exists()
-        msg = f"Active at {proj_dir}" if proj_ok else "No local project .agent-memory directory found"
+        msg = f"Active at {proj_dir}" if proj_ok else "No local project .agent-m3m directory found"
         results.append(("Project Storage", msg, proj_ok))
 
         # 4. SQLite FTS5 Index

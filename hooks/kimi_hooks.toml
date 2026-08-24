@@ -1,8 +1,8 @@
-# Kimi CLI hook configuration for agent-memory
+# Kimi CLI hook configuration for agent-m3m
 [[hooks]]
 event = "SessionStart"
-command = "agent-memory context"
+command = "agent-m3m context"
 
 [[hooks]]
 event = "Stop"
-command = "agent-memory save --stdin"
+command = "agent-m3m save --stdin"

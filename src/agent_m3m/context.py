@@ -25,7 +25,7 @@ class ContextBuilder:
 
         lines = [
             "<!-- AGENT PERSISTENT MEMORY CONTEXT -->",
-            "Below is user memory context retrieved from ~/.agent-memory.",
+            "Below is user memory context retrieved from ~/.agent-m3m.",
             "",
         ]
 

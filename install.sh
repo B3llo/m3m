@@ -1,26 +1,34 @@
 #!/usr/bin/env bash
 set -e
 
-echo "=== Installing agent-memory ==="
+echo "=== Installing agent-m3m ==="
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN_DIR="$HOME/.local/bin"
 
 mkdir -p "$BIN_DIR"
 
-echo "1. Installing Python package in editable mode..."
-pip3 install -e "$PROJECT_DIR" --no-deps 2>/dev/null || {
-    echo "pip3 install editable failed, symlinking binary to $BIN_DIR/agent-memory..."
-    ln -sf "$PROJECT_DIR/src/agent_memory/cli.py" "$BIN_DIR/agent-memory"
-    chmod +x "$BIN_DIR/agent-memory"
-}
+echo "1. Installing Python package..."
+if pip3 install -e "$PROJECT_DIR" --break-system-packages 2>/dev/null; then
+    echo "✓ Installed via pip3 in editable mode."
+elif pip3 install -e "$PROJECT_DIR" 2>/dev/null; then
+    echo "✓ Installed via pip3."
+else
+    echo "✓ Creating CLI wrapper in $BIN_DIR/agent-m3m..."
+    cat << EOF > "$BIN_DIR/agent-m3m"
+#!/usr/bin/env bash
+export PYTHONPATH="$PROJECT_DIR/src:\$PYTHONPATH"
+exec python3 -m agent_m3m.cli "\$@"
+EOF
+    chmod +x "$BIN_DIR/agent-m3m"
+fi
 
-echo "2. Initializing global memory at ~/.agent-memory..."
-python3 -m agent_memory.cli init --global
+echo "2. Initializing global memory at ~/.agent-m3m..."
+PYTHONPATH="$PROJECT_DIR/src" python3 -m agent_m3m.cli init --global
 
 echo "3. Running system diagnostics..."
-python3 -m agent_memory.cli doctor
+PYTHONPATH="$PROJECT_DIR/src" python3 -m agent_m3m.cli doctor
 
 echo ""
 echo "=== Installation Complete! ==="
-echo "You can now use 'agent-memory' CLI command from your terminal."
+echo "Executable located at: $BIN_DIR/agent-m3m"
