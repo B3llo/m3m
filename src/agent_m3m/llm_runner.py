@@ -27,13 +27,20 @@ class LLMRunner:
             return self._run_codex(prompt)
 
     def _run_codex(self, prompt: str) -> Tuple[bool, str]:
-        """Invoke Codex CLI non-interactively."""
+        """Invoke Codex CLI non-interactively with configured model and effort."""
         if not shutil.which("codex"):
             return False, "Codex CLI binary not found in PATH"
+
+        model = self.config.model_name or "luna"
+        effort = self.config.reasoning_effort or "low"
 
         cmd = [
             "codex",
             "exec",
+            "-c",
+            f'model="{model}"',
+            "-c",
+            f'reasoning_effort="{effort}"',
             prompt,
         ]
         try:
@@ -45,15 +52,17 @@ class LLMRunner:
             return False, str(e)
 
     def _run_claude(self, prompt: str) -> Tuple[bool, str]:
-        """Invoke Claude Code CLI non-interactively."""
+        """Invoke Claude Code CLI non-interactively with configured model."""
         if not shutil.which("claude"):
             return False, "Claude Code binary not found in PATH"
+
+        model = self.config.model_name or "haiku"
 
         cmd = [
             "claude",
             "-p",
             "--model",
-            "haiku",
+            model,
             prompt,
         ]
         try:
