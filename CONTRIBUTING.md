@@ -1,6 +1,6 @@
 # Contributing to agent-m3m
 
-Thank you for helping improve agent-m3m. The project is local-first and treats Markdown memory files as the source of truth, so changes must preserve user data and existing agent integrations.
+Thank you for helping improve agent-m3m. The project is local-first and treats Markdown files inside the ignored memory store as the local source of truth, so changes must preserve user data and existing agent integrations.
 
 ## Supported development environments
 
@@ -39,7 +39,8 @@ python -m unittest tests.test_agent_m3m.TestAgentM3M.test_opencode_plugin_templa
 - Keep changes focused and include regression tests for changed behavior.
 - Preserve compatibility with existing Markdown memories and configuration unless the change includes a documented migration.
 - Treat hook output as a public protocol. Test installation and runtime behavior for every affected agent.
-- Never commit `.agent-m3m/`, transcripts, API keys, local configuration, or real user memories. Use synthetic fixtures.
+- Never commit `.agent-m3m/`, generated root `AGENTS.md` or `MEMORY.md`, transcripts, API keys, local configuration, or real user memories. Use synthetic fixtures.
+- Put shareable project knowledge in deliberately curated documentation outside the ignored memory store.
 - Update user-facing documentation and `CHANGELOG.md` when behavior changes.
 
 ## Pull requests

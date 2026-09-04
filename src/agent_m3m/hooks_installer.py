@@ -70,17 +70,26 @@ class HooksInstaller:
                 temp_path.unlink()
 
     @staticmethod
-    def _remove_commands(entries: List[Any], marker: str) -> List[Any]:
-        return [entry for entry in entries if marker not in json.dumps(entry, ensure_ascii=False)]
-
-    @staticmethod
     def _entries(hooks: Dict[str, Any], event: str) -> List[Any]:
         value = hooks.get(event, [])
         return value if isinstance(value, list) else []
 
     @staticmethod
-    def _remove_codex_m3m_save(entries: List[Any]) -> List[Any]:
-        """Remove only m3m capture commands, retaining sibling Codex hooks."""
+    def _is_m3m_command(command: Any, subcommand: str) -> bool:
+        if not isinstance(command, str):
+            return False
+        return bool(re.match(
+            rf"^(?:"
+            rf'"/[^"\r\n]*/m3m"'
+            rf"|'/[^'\r\n]*/m3m'"
+            rf"|(?:\S*[/\\])?m3m"
+            rf")\s+{re.escape(subcommand)}(?:\s|$)",
+            command.strip(),
+        ))
+
+    @classmethod
+    def _remove_m3m_commands(cls, entries: List[Any], subcommand: str) -> List[Any]:
+        """Remove only managed commands, retaining legacy entries and siblings."""
         cleaned: List[Any] = []
         for entry in entries:
             if not isinstance(entry, dict):
@@ -89,7 +98,7 @@ class HooksInstaller:
 
             command = entry.get("command")
             if isinstance(command, str):
-                if "m3m save" not in command:
+                if not cls._is_m3m_command(command, subcommand):
                     cleaned.append(entry)
                 continue
 
@@ -101,11 +110,38 @@ class HooksInstaller:
             retained = [
                 hook
                 for hook in nested_hooks
-                if not (isinstance(hook, dict) and "m3m save" in str(hook.get("command", "")))
+                if not (
+                    isinstance(hook, dict)
+                    and cls._is_m3m_command(hook.get("command"), subcommand)
+                )
             ]
             if retained:
                 cleaned.append({**entry, "hooks": retained})
         return cleaned
+
+    @staticmethod
+    def _load_json_config(path: Path, label: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        """Read an existing JSON config without ever repairing it destructively."""
+        if not path.is_file():
+            return {}, None
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, ValueError) as exc:
+            return None, f"Invalid {label} JSON in {path}; file left unchanged: {exc}"
+        if not isinstance(data, dict):
+            return None, f"Invalid {label} JSON in {path}; root must be an object and file was left unchanged"
+        hooks = data.get("hooks")
+        if "hooks" in data and not isinstance(hooks, dict):
+            return None, f"Invalid {label} hooks in {path}; hooks must be an object and file was left unchanged"
+        if isinstance(hooks, dict):
+            invalid_events = [event for event, entries in hooks.items() if not isinstance(entries, list)]
+            if invalid_events:
+                event = str(invalid_events[0])[:100]
+                return None, (
+                    f"Invalid {label} hooks in {path}; event {event!r} must be a list "
+                    "and file was left unchanged"
+                )
+        return data, None
 
     @staticmethod
     def _remove_kimi_m3m_hook_blocks(content: str) -> str:
@@ -163,22 +199,25 @@ class HooksInstaller:
     def install_claude_hooks(self) -> Tuple[str, str, bool]:
         """Install SessionStart and SessionEnd without duplicating Claude hooks."""
         settings_file = self.home_dir / ".claude" / "settings.json"
-        data: Dict[str, Any] = {}
-        if settings_file.is_file():
-            try:
-                data = json.loads(settings_file.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                data = {}
-        if not isinstance(data, dict):
-            data = {}
-        if not isinstance(data.get("hooks"), dict):
-            data["hooks"] = {}
+        data, error = self._load_json_config(settings_file, "Claude settings")
+        if error or data is None:
+            return ("Claude Code Hooks", error or "Failed to read Claude settings", False)
         hooks = data.setdefault("hooks", {})
-        hooks["SessionStart"] = self._remove_commands(self._entries(hooks, "SessionStart"), "m3m context")
-        hooks["SessionEnd"] = self._remove_commands(self._entries(hooks, "SessionEnd"), "m3m save")
-        hooks["Stop"] = self._remove_commands(self._entries(hooks, "Stop"), "m3m save")
-        hooks["SessionStart"].append({"type": "command", "command": "m3m context", "timeout": 3})
-        hooks["SessionEnd"].append({"type": "command", "command": "m3m save --stdin --session-end --quiet", "timeout": 3})
+        hooks["SessionStart"] = self._remove_m3m_commands(self._entries(hooks, "SessionStart"), "context")
+        hooks["SessionEnd"] = self._remove_m3m_commands(self._entries(hooks, "SessionEnd"), "save")
+        hooks["Stop"] = self._remove_m3m_commands(self._entries(hooks, "Stop"), "save")
+        hooks["SessionStart"].append({
+            "matcher": "startup|resume|clear|compact",
+            "hooks": [{"type": "command", "command": "m3m context", "timeout": 3}],
+        })
+        hooks["SessionEnd"].append({
+            "matcher": "",
+            "hooks": [{
+                "type": "command",
+                "command": "m3m save --stdin --session-end --quiet",
+                "timeout": 3,
+            }],
+        })
         try:
             self._atomic_json_write(settings_file, data)
             return ("Claude Code Hooks", f"Installed safely in {settings_file}", True)
@@ -188,25 +227,21 @@ class HooksInstaller:
     def install_codex_hooks(self) -> Tuple[str, str, bool]:
         """Install Codex lifecycle hooks using valid JSON hook responses."""
         hooks_file = self.home_dir / ".codex" / "hooks.json"
-        data: Dict[str, Any] = {}
-        if hooks_file.is_file():
-            try:
-                data = json.loads(hooks_file.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                data = {}
-        if not isinstance(data, dict):
-            data = {}
-        if not isinstance(data.get("hooks"), dict):
-            data["hooks"] = {}
+        data, error = self._load_json_config(hooks_file, "Codex hooks")
+        if error or data is None:
+            return ("OpenAI Codex Hooks", error or "Failed to read Codex hooks", False)
         hooks = data.setdefault("hooks", {})
-        hooks["SessionStart"] = self._remove_commands(self._entries(hooks, "SessionStart"), "m3m context")
-        hooks["SessionEnd"] = self._remove_codex_m3m_save(self._entries(hooks, "SessionEnd"))
-        hooks["Stop"] = self._remove_codex_m3m_save(self._entries(hooks, "Stop"))
+        hooks["SessionStart"] = self._remove_m3m_commands(self._entries(hooks, "SessionStart"), "context")
+        hooks["SessionEnd"] = self._remove_m3m_commands(self._entries(hooks, "SessionEnd"), "save")
+        hooks["Stop"] = self._remove_m3m_commands(self._entries(hooks, "Stop"), "save")
         hooks["SessionStart"].append({
             "matcher": "startup|resume|clear|compact",
             "hooks": [{"type": "command", "command": "m3m context --hook-output", "timeout": 3}],
         })
-        hooks["UserPromptSubmit"] = self._remove_commands(self._entries(hooks, "UserPromptSubmit"), "m3m context")
+        hooks["UserPromptSubmit"] = self._remove_m3m_commands(
+            self._entries(hooks, "UserPromptSubmit"),
+            "context",
+        )
         hooks["UserPromptSubmit"].append({
             "matcher": "",
             "hooks": [{"type": "command", "command": "m3m context --hook-output --hook-event UserPromptSubmit", "timeout": 3}],

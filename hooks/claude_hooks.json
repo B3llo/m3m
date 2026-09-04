@@ -2,16 +2,26 @@
   "hooks": {
     "SessionStart": [
       {
-        "type": "command",
-        "command": "m3m context",
-        "timeout": 3
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "m3m context",
+            "timeout": 3
+          }
+        ]
       }
     ],
     "SessionEnd": [
       {
-        "type": "command",
-        "command": "m3m save --stdin --session-end --quiet",
-        "timeout": 3
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "m3m save --stdin --session-end --quiet",
+            "timeout": 3
+          }
+        ]
       }
     ]
   }

@@ -192,11 +192,15 @@ class TestAgentM3M(unittest.TestCase):
         env["HOME"] = self.tmp_dir.name
         env["PYTHONPATH"] = str(Path(__file__).parents[1] / "src")
 
+        # Keep subprocess discovery inside the test-owned HOME. Running from
+        # the repository would discover its real .agent-m3m queue and could
+        # detach a worker that outlives this temporary directory.
         context = subprocess.run(
             [sys.executable, "-m", "agent_m3m.cli", "context", "--hook-output"],
             capture_output=True,
             text=True,
             env=env,
+            cwd=self.tmp_dir.name,
             check=True,
         )
         context_json = json.loads(context.stdout)
@@ -208,6 +212,7 @@ class TestAgentM3M(unittest.TestCase):
             capture_output=True,
             text=True,
             env=env,
+            cwd=self.tmp_dir.name,
             check=True,
         )
         self.assertEqual(
@@ -216,11 +221,21 @@ class TestAgentM3M(unittest.TestCase):
         )
 
         stop = subprocess.run(
-            [sys.executable, "-m", "agent_m3m.cli", "save", "--stdin", "--hook-output"],
+            [
+                sys.executable,
+                "-m",
+                "agent_m3m.cli",
+                "save",
+                "--stdin",
+                "--session-end",
+                "--hook-output",
+                "--quiet",
+            ],
             input="",
             capture_output=True,
             text=True,
             env=env,
+            cwd=self.tmp_dir.name,
             check=True,
         )
         self.assertEqual(json.loads(stop.stdout), {"continue": True, "suppressOutput": True})
