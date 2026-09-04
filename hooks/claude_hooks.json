@@ -3,13 +3,15 @@
     "SessionStart": [
       {
         "type": "command",
-        "command": "m3m context"
+        "command": "m3m context",
+        "timeout": 3
       }
     ],
-    "Stop": [
+    "SessionEnd": [
       {
         "type": "command",
-        "command": "m3m save --stdin"
+        "command": "m3m save --stdin --session-end --quiet",
+        "timeout": 3
       }
     ]
   }
