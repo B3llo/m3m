@@ -46,19 +46,21 @@ It gives you a **universal personal memory** across different agents without loc
 
 ### 1. Installation
 
-Clone the repository and run the installer:
+The public repository URL is intentionally pending until the remote project identity is established. From an existing checkout, install `m3m` into an isolated per-user tool environment:
 
 ```bash
-git clone https://github.com/your-username/agent-m3m.git
-cd agent-m3m
-./install.sh
+uv tool install .
 ```
 
-Or install using `pip`:
+Or use `pipx`:
 
 ```bash
-pip install -e .
+pipx install .
 ```
+
+`./install.sh` performs the same isolated installation, preferring `uv` and falling back to `pipx`. It does not initialize a memory store, write configuration, or install hooks.
+
+Editable installs are only for contributors. Create and activate a virtual environment first, then run `python -m pip install -e ".[dev]"` as described in [CONTRIBUTING.md](CONTRIBUTING.md). Do not install the project into the system Python.
 
 ### 2. Initialize Memory
 
@@ -114,7 +116,8 @@ Guarantees:
 - **Managed block**: generated content lives between `<!-- m3m:start -->` and `<!-- m3m:end -->`. Existing files without the marker get the block *appended* — your hand-written content is never touched. Re-running replaces only the block.
 - **Bounded selection**: pinned → most used → most confident → newest, capped by `export_universal_max_lines` (default 150) — never a 500-memory dump.
 - **No feedback loops**: `m3m import` skips managed blocks, so re-importing an export adds nothing; manual edits *outside* the block still import normally.
-- `.agent-m3m/` remains the single source of truth; exports are disposable derived files.
+- Markdown inside `.agent-m3m/` remains the source of truth for local memory, while exports are disposable derived files.
+- Project-local `.agent-m3m/`, generated `AGENTS.md`, and generated `MEMORY.md` contain runtime or personal context and stay local by default. Do not commit them. Team-facing knowledge should be reviewed and rewritten as curated documentation outside the ignored memory store.
 
 ### MCP server (any MCP client)
 
@@ -312,7 +315,9 @@ Kimi remains available through `m3m init --agents kimi`. All integrations remain
 ## 🛡️ Security & Git Policy
 
 - **Global Memory (`~/.agent-m3m`):** Stored outside your git repositories.
-- **Project Memory (`<repo>/.agent-m3m`):** High-level decisions can be committed if desired. Temporary session caches (`sessions/`) and disposable indexes (`.index/`) are automatically added to `.gitignore`.
+- **Project Memory (`<repo>/.agent-m3m`):** Private runtime state whose durable Markdown files are the local source of truth. The entire directory is ignored and must not be committed, even when it contains useful decisions.
+- **Generated agent files:** Root `AGENTS.md` and `MEMORY.md` exports stay local and are ignored. Generated exports should not be treated as reviewed team documentation.
+- **Shareable knowledge:** Publish only deliberately curated, reviewed documentation outside `.agent-m3m/`, with secrets and personal context removed.
 - **Index isolation:** Each repository gets its own derived SQLite index. The index is automatically rebuilt when Markdown files change.
 - **Secret Scrubbing:** Deterministic regex scrubber redacts common OpenAI/Anthropic, GitHub/GitLab, AWS, Slack, package registry, JWT, private-key, bearer, database, and environment-secret patterns before saving to Markdown.
 - **Privacy:** `local_only = true` disables configured LLM providers and uses the deterministic extractor fallback. External CLIs are opt-in through configuration and explicit hook installation.

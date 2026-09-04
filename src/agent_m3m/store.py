@@ -20,6 +20,45 @@ from .sanitizer import scrub_secrets
 from .config import Config
 
 
+PROJECT_MEMORY_GITIGNORE_ENTRY = "/.agent-m3m/"
+AGENTS_EXPORT_GITIGNORE_ENTRY = "/AGENTS.md"
+MEMORY_EXPORT_GITIGNORE_ENTRY = "/MEMORY.md"
+LOCAL_ARTIFACT_GITIGNORE_ENTRIES = frozenset({
+    PROJECT_MEMORY_GITIGNORE_ENTRY,
+    AGENTS_EXPORT_GITIGNORE_ENTRY,
+    MEMORY_EXPORT_GITIGNORE_ENTRY,
+})
+
+
+def ensure_local_artifacts_ignored(project_root: Path, entries: Tuple[str, ...]) -> Path:
+    """Append selected local-artifact protections without rewriting existing bytes."""
+    gitignore = project_root / ".gitignore"
+    requested = tuple(dict.fromkeys(entries))
+    unsupported = set(requested) - LOCAL_ARTIFACT_GITIGNORE_ENTRIES
+    if unsupported:
+        raise ValueError(f"Unsupported agent-m3m gitignore entries: {sorted(unsupported)}")
+    if not requested:
+        return gitignore
+
+    existing = gitignore.read_bytes() if gitignore.exists() else b""
+    existing_lines = {line.strip() for line in existing.splitlines()}
+    missing = [
+        entry.encode("utf-8")
+        for entry in requested
+        if entry.encode("utf-8") not in existing_lines
+    ]
+    if not missing:
+        return gitignore
+
+    newline = b"\r\n" if b"\r\n" in existing else b"\n"
+    prefix = b"" if not existing or existing.endswith(b"\n") else newline
+    addition = prefix + newline.join(missing) + newline
+    gitignore.parent.mkdir(parents=True, exist_ok=True)
+    with gitignore.open("ab") as handle:
+        handle.write(addition)
+    return gitignore
+
+
 class MemoryStore:
     APPROVAL_RECONCILIATION_DIR = "approval-reconciliation"
     MEMORY_QUARANTINE_DIR = "memory-quarantine"
@@ -82,15 +121,8 @@ class MemoryStore:
                 encoding="utf-8",
             )
 
-        # Add to .gitignore if inside a git repo
-        git_ignore = target_dir.parent / ".gitignore"
-        if git_ignore.exists():
-            content = git_ignore.read_text(encoding="utf-8")
-            if ".agent-m3m/sessions" not in content:
-                git_ignore.write_text(
-                    content + "\n# agent-m3m temp caches\n.agent-m3m/sessions/\n.agent-m3m/.index/\n.agent-m3m/.store.lock\n",
-                    encoding="utf-8",
-                )
+        if target_dir.name == ".agent-m3m":
+            ensure_local_artifacts_ignored(target_dir.parent, (PROJECT_MEMORY_GITIGNORE_ENTRY,))
 
         return target_dir
 

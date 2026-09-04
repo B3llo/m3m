@@ -29,6 +29,7 @@ staging/
 
 # Project-local memories are private runtime data, not source code.
 /.agent-m3m/
+/AGENTS.md
 /MEMORY.md
 
 # OS

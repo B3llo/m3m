@@ -4,7 +4,7 @@ agent-m3m is currently beta software for macOS and Linux on Python 3.9 through 3
 
 ## Before release
 
-1. Review the working tree for secrets, transcripts, personal memories, generated `.agent-m3m` data, and local paths.
+1. Review the working tree for secrets, transcripts, personal memories, generated `.agent-m3m` data, root `AGENTS.md` or `MEMORY.md` exports, and local paths.
 2. Confirm the package version is consistent in `pyproject.toml` and `agent_m3m.__version__`.
 3. Move user-visible entries from `Unreleased` into a dated version section in `CHANGELOG.md`.
 4. Run the complete local checks:
@@ -36,6 +36,8 @@ agent-m3m is currently beta software for macOS and Linux on Python 3.9 through 3
 4. Create release notes from `CHANGELOG.md` and attach checksums for the source and wheel distributions.
 
 Publishing automation is intentionally not included until the repository identity, package ownership, and trusted publisher configuration are established.
+
+The public repository URL is also intentionally omitted until that identity is established. Do not publish placeholder clone, issue, or source URLs in package metadata or documentation.
 
 ## After release
 
