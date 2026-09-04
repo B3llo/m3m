@@ -10,10 +10,11 @@ agent-m3m is currently beta software for macOS and Linux on Python 3.9 through 3
 4. Run the complete local checks:
 
    ```bash
-   ruff check src tests
-   python -m compileall src tests
+   ruff check src tests evals
+   python -m compileall src tests evals
    coverage run --source=agent_m3m -m unittest discover -s tests -v
    coverage report --show-missing --fail-under=75
+   python evals/run_retrieval_eval.py --min-recall-at-5 1.0 --min-mrr 0.8
    bun --check hooks/opencode_plugin.js
    ```
 
