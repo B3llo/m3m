@@ -6,6 +6,19 @@ __pycache__/
 dist/
 build/
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.tox/
+.nox/
+.venv/
+venv/
+.coverage
+.coverage.*
+htmlcov/
+pip-wheel-metadata/
+
+# Local configuration and secrets
+.env
 
 # Agent Memory local caches
 .index/
@@ -14,9 +27,9 @@ staging/
 .agent-memory/.index/
 .agent-memory/sessions/
 
+# Project-local memories are private runtime data, not source code.
+/.agent-m3m/
+/MEMORY.md
+
 # OS
 .DS_Store
-
-# agent-m3m temp caches
-.agent-m3m/sessions/
-.agent-m3m/.index/

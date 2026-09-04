@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
+from . import __version__
 from .config import Config
 from .context import ContextBuilder
 from .doctor import Doctor
@@ -1293,10 +1294,15 @@ def _run_topics_build(config: Config, store: MemoryStore, apply: bool) -> None:
         print("Run `m3m topics --build --apply` to write the pages.")
 
 
-def _build_parser() -> argparse.ArgumentParser:
+def _build_parser(prog: str = "m3m") -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="m3m",
+        prog=prog,
         description="Local-first persistent memory for AI coding agents with Markdown as Source of Truth",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
     )
     subparsers = parser.add_subparsers(dest="command", help="Available subcommands")
 
@@ -1529,9 +1535,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main():
-    args = _build_parser().parse_args()
+    invoked_as = Path(sys.argv[0]).name
+    prog = invoked_as if invoked_as in {"m3m", "agent-m3m"} else "m3m"
+    parser = _build_parser(prog=prog)
+    args = parser.parse_args()
     if not args.command:
-        _build_parser().print_help()
+        parser.print_help()
         return
 
     config = Config()

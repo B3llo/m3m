@@ -61,8 +61,14 @@ class ContextBuilder:
         prompt: Optional[str] = None,
         event_source: str = "startup",
         max_chars: Optional[int] = None,
+        record_usage: bool = True,
     ) -> str:
-        """Build bounded core context plus prompt-specific archival retrieval."""
+        """Build bounded core context plus prompt-specific archival retrieval.
+
+        ``record_usage`` preserves the historical reinforcement behavior by
+        default. Read-only integrations can disable it when building context
+        must not modify the Markdown source of truth.
+        """
         global_core = self.store.read_core_memory(MemoryScope.GLOBAL)
         project_core = self.store.read_core_memory(MemoryScope.PROJECT)
         budget = max_chars or self.config.max_context_chars
@@ -170,8 +176,9 @@ class ContextBuilder:
 
         # Reinforcement feedback: memories actually injected earn a use_count
         # bump (bounded writes). Consolidation later promotes high-use items.
-        try:
-            self.store.record_usage(injected_ids)
-        except Exception:
-            pass
+        if record_usage:
+            try:
+                self.store.record_usage(injected_ids)
+            except Exception:
+                pass
         return result

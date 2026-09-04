@@ -8,7 +8,7 @@ import unittest.mock
 from pathlib import Path
 
 from agent_m3m.config import Config
-from agent_m3m.mcp import run_mcp_server
+from agent_m3m.mcp import PROTOCOL_VERSION, run_mcp_server
 from agent_m3m.store import MemoryStore
 
 
@@ -48,7 +48,7 @@ class TestMcpServer(unittest.TestCase):
         context.builder = ContextBuilder(self.store, context.retriever, self.config)
         return context
 
-    def test_initialize_echoes_protocol_and_lists_tools(self):
+    def test_initialize_reports_supported_protocol_and_lists_tools(self):
         responses = self._serve([
             {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}},
             {"jsonrpc": "2.0", "method": "notifications/initialized"},
@@ -57,6 +57,7 @@ class TestMcpServer(unittest.TestCase):
 
         self.assertEqual(len(responses), 2)  # notification never responds
         self.assertEqual(responses[0]["id"], 1)
+        self.assertEqual(responses[0]["result"]["protocolVersion"], PROTOCOL_VERSION)
         self.assertEqual(responses[0]["result"]["serverInfo"]["name"], "agent-m3m")
         tool_names = {tool["name"] for tool in responses[1]["result"]["tools"]}
         self.assertIn("m3m_context", tool_names)
@@ -64,6 +65,24 @@ class TestMcpServer(unittest.TestCase):
         self.assertIn("m3m_search", tool_names)
         forget = next(tool for tool in responses[1]["result"]["tools"] if tool["name"] == "m3m_forget")
         self.assertTrue(forget["annotations"]["destructiveHint"])
+        pin = next(tool for tool in responses[1]["result"]["tools"] if tool["name"] == "m3m_pin")
+        self.assertTrue(pin["annotations"]["destructiveHint"])
+        self.assertIn("unpin", pin["description"])
+
+    def test_initialize_does_not_echo_an_unsupported_protocol(self):
+        unsupported = "2099-01-01"
+        responses = self._serve([
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {"protocolVersion": unsupported},
+            },
+        ])
+
+        negotiated = responses[0]["result"]["protocolVersion"]
+        self.assertEqual(negotiated, PROTOCOL_VERSION)
+        self.assertNotEqual(negotiated, unsupported)
 
     def test_remember_then_search_via_tools(self):
         responses = self._serve([
@@ -117,6 +136,34 @@ class TestMcpServer(unittest.TestCase):
         self.assertIn("archived", responses[0]["result"]["content"][0]["text"])
         self.assertEqual(self.store.load_item_by_id("mem_mcp").status, MemoryStatus.ARCHIVED)
         self.assertIn("AGENT PERSISTENT MEMORY CONTEXT", responses[1]["result"]["content"][0]["text"])
+
+    def test_context_tool_does_not_modify_memory_markdown_or_usage(self):
+        from agent_m3m.models import MemoryItem, MemoryScope
+
+        self.store.save_item(MemoryItem(
+            id="mem_readonly",
+            content="SQLite migrations use the local workflow.",
+            scope=MemoryScope.PROJECT,
+            project_id=self.config.project_id,
+        ))
+        item = self.store.load_item_by_id("mem_readonly")
+        memory_path = Path(item.file_path)
+        before = memory_path.read_bytes()
+
+        responses = self._serve([{
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "m3m_context",
+                "arguments": {"prompt": "SQLite migrations local workflow"},
+            },
+        }])
+
+        self.assertNotIn("isError", responses[0]["result"])
+        self.assertIn("mem_readonly", responses[0]["result"]["content"][0]["text"])
+        self.assertEqual(memory_path.read_bytes(), before)
+        self.assertEqual(self.store.load_item_by_id("mem_readonly").use_count, 0)
 
     def test_unknown_tool_returns_jsonrpc_error(self):
         responses = self._serve([

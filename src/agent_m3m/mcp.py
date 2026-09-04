@@ -86,13 +86,19 @@ TOOLS: List[Dict[str, Any]] = [
     },
     {
         "name": "m3m_pin",
-        "description": "Pin a memory so it is always injected into future session contexts.",
+        "description": (
+            "Pin a memory so it is always injected into future session contexts, "
+            "or unpin it to remove that guarantee."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {"id": {"type": "string"}, "unpin": {"type": "boolean", "default": False}},
             "required": ["id"],
         },
-        "annotations": _WRITE,
+        # The same tool can unpin a memory, which removes it from guaranteed
+        # future context injection. Do not advertise the combined operation as
+        # non-destructive to MCP clients.
+        "annotations": _DESTRUCTIVE,
     },
     {
         "name": "m3m_forget",
@@ -116,7 +122,7 @@ class _ServerContext:
 
 
 def _tool_context(args: Dict[str, Any], ctx: _ServerContext) -> str:
-    return ctx.builder.build_context(prompt=args.get("prompt"))
+    return ctx.builder.build_context(prompt=args.get("prompt"), record_usage=False)
 
 
 def _tool_search(args: Dict[str, Any], ctx: _ServerContext) -> str:
@@ -214,12 +220,13 @@ def _handle_message(message: Any, ctx: _ServerContext) -> Optional[Dict[str, Any
     params = message.get("params") if isinstance(message.get("params"), dict) else {}
 
     if method == "initialize":
-        requested = str(params.get("protocolVersion") or PROTOCOL_VERSION)
         return {
             "jsonrpc": "2.0",
             "id": msg_id,
             "result": {
-                "protocolVersion": requested,
+                # This server implements one protocol revision. Reporting an
+                # arbitrary client value would falsely claim support for it.
+                "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": {"tools": {}},
                 "serverInfo": SERVER_INFO,
             },
