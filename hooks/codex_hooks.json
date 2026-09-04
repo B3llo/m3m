@@ -2,14 +2,38 @@
   "hooks": {
     "SessionStart": [
       {
-        "type": "command",
-        "command": "m3m context"
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "m3m context --hook-output",
+            "timeout": 3
+          }
+        ]
       }
     ],
     "Stop": [
       {
-        "type": "command",
-        "command": "m3m save --stdin"
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "m3m save --stdin --session-end --hook-output --quiet",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "m3m context --hook-output --hook-event UserPromptSubmit",
+            "timeout": 3
+          }
+        ]
       }
     ]
   }

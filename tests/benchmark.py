@@ -11,13 +11,13 @@ from agent_m3m.store import MemoryStore
 from agent_m3m.retriever import MemoryRetriever
 
 
-SAMPLE_TAGS = ["docker", "terraform", "node", "python", "pnpm", "react", "postgres", "redis", "aws", "git"]
+SAMPLE_TAGS = ["docker", "terraform", "node", "python", "pnpm", "react", "postgres", "redis", "gcp", "git"]
 SAMPLE_ENTITIES = ["pnpm", "docker", "terraform", "fastapi", "nextjs", "kubernetes", "vitest", "pytest"]
 
 SAMPLE_TOPICS = [
     "Prefers local container development over remote staging servers.",
     "Always run pnpm test before pushing commits to main branch.",
-    "Use Terraform modular structure with remote state locks.",
+    "Use modular build structure with remote cache locks.",
     "FastAPI endpoints should return typed Pydantic models.",
     "Avoid running Node processes as root inside Docker containers.",
     "PostgreSQL indexes should be created concurrently for production migrations.",
@@ -31,7 +31,8 @@ SAMPLE_TOPICS = [
 def run_benchmark(count: int):
     with tempfile.TemporaryDirectory() as tmp_dir:
         global_path = Path(tmp_dir) / "global_memory"
-        config = Config(global_path=global_path)
+        project_path = Path(tmp_dir) / "project_memory"
+        config = Config(global_path=global_path, project_path=project_path)
         store = MemoryStore(config)
         retriever = MemoryRetriever(store, config)
 
@@ -57,11 +58,11 @@ def run_benchmark(count: int):
         t0 = time.time()
         indexed = retriever.reindex()
         t_index = time.time() - t0
-        db_size_kb = (global_path / ".index" / "memory_index.db").stat().st_size / 1024
+        db_size_kb = retriever.db_path.stat().st_size / 1024
         print(f"✓ Indexed {indexed} items in {t_index:.3f}s (FTS5 DB size: {db_size_kb:.1f} KB)")
 
         print("--- Query Performance ---")
-        queries = ["pnpm test", "docker container", "terraform module", "fastapi pydantic", "redis cache"]
+        queries = ["pnpm test", "docker container", "build module", "fastapi pydantic", "redis cache"]
         latencies = []
         for q in queries:
             t0 = time.time()

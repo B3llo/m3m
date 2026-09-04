@@ -4,5 +4,5 @@ event = "SessionStart"
 command = "m3m context"
 
 [[hooks]]
-event = "Stop"
-command = "m3m save --stdin"
+event = "SessionEnd"
+command = "m3m save --stdin --session-end --quiet"

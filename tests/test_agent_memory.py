@@ -61,7 +61,7 @@ class TestAgentMemory(unittest.TestCase):
     def test_store_crud(self):
         item1 = MemoryItem(
             id=generate_memory_id(),
-            content="Use Terraform modules with local state.",
+            content="Use build modules with local state.",
             scope=MemoryScope.GLOBAL,
             type=MemoryType.LESSON,
         )
@@ -70,7 +70,7 @@ class TestAgentMemory(unittest.TestCase):
 
         loaded = self.store.load_item_by_id(saved.id)
         self.assertIsNotNone(loaded)
-        self.assertEqual(loaded.content, "Use Terraform modules with local state.")
+        self.assertEqual(loaded.content, "Use build modules with local state.")
 
     def test_fts5_indexing_and_ranking(self):
         item1 = MemoryItem(
