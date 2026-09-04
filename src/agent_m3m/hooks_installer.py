@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -106,6 +107,59 @@ class HooksInstaller:
                 cleaned.append({**entry, "hooks": retained})
         return cleaned
 
+    @staticmethod
+    def _remove_kimi_m3m_hook_blocks(content: str) -> str:
+        """Remove complete m3m-owned ``[[hooks]]`` entries from Kimi TOML.
+
+        Removing only the command line leaves the preceding array-table header
+        behind and can change how later keys are parsed.  Work block-by-block
+        instead, while preserving unrelated hook entries and other tables.
+        """
+        lines = content.splitlines(keepends=True)
+        hook_header = re.compile(r"^\s*\[\[\s*hooks\s*\]\]\s*(?:#.*)?$")
+        any_table = re.compile(r"^\s*\[{1,2}\s*[^\]]+?\s*\]{1,2}\s*(?:#.*)?$")
+        hook_child_table = re.compile(r"^\s*\[{1,2}\s*hooks\s*\.")
+        command = re.compile(
+            r"^\s*command\s*=\s*(?P<value>\"(?:[^\"\\]|\\.)*\"|'[^']*')\s*(?:#.*)?$",
+            re.MULTILINE,
+        )
+
+        output: List[str] = []
+        index = 0
+        while index < len(lines):
+            if not hook_header.match(lines[index].rstrip("\r\n")):
+                output.append(lines[index])
+                index += 1
+                continue
+
+            end = index + 1
+            while end < len(lines):
+                candidate = lines[end].rstrip("\r\n")
+                if hook_header.match(candidate):
+                    break
+                if any_table.match(candidate) and not hook_child_table.match(candidate):
+                    break
+                end += 1
+            block = "".join(lines[index:end])
+            managed = False
+            for match in command.finditer(block):
+                assignment = match.group("value")
+                try:
+                    value = json.loads(assignment) if assignment.startswith('"') else assignment[1:-1]
+                except (TypeError, ValueError):
+                    value = assignment
+                if isinstance(value, str) and re.match(
+                    r"^(?:\S*[/\\])?m3m\s+(?:context|save)(?:\s|$)",
+                    value.strip(),
+                ):
+                    managed = True
+                    break
+            if not managed:
+                output.extend(lines[index:end])
+            index = end
+
+        return "".join(output).rstrip()
+
     def install_claude_hooks(self) -> Tuple[str, str, bool]:
         """Install SessionStart and SessionEnd without duplicating Claude hooks."""
         settings_file = self.home_dir / ".claude" / "settings.json"
@@ -170,20 +224,18 @@ class HooksInstaller:
     def install_kimi_hooks(self) -> Tuple[str, str, bool]:
         path = self.home_dir / ".kimi" / "hooks.toml"
         content = path.read_text(encoding="utf-8") if path.is_file() else "# Kimi CLI hooks\n"
-        lines = [line for line in content.splitlines() if "m3m " not in line]
-        lines.extend([
-            "",
-            "[[hooks]]",
-            'event = "SessionStart"',
-            'command = "m3m context"',
-            "",
-            "[[hooks]]",
-            'event = "SessionEnd"',
-            'command = "m3m save --stdin --session-end --quiet"',
-            "",
-        ])
+        retained = self._remove_kimi_m3m_hook_blocks(content)
+        managed_hooks = (
+            '[[hooks]]\n'
+            'event = "SessionStart"\n'
+            'command = "m3m context"\n\n'
+            '[[hooks]]\n'
+            'event = "SessionEnd"\n'
+            'command = "m3m save --stdin --session-end --quiet"\n'
+        )
+        updated = f"{retained}\n\n{managed_hooks}" if retained else managed_hooks
         try:
-            self._atomic_text_write(path, "\n".join(lines))
+            self._atomic_text_write(path, updated)
             return ("Kimi Hooks", f"Installed in {path}", True)
         except OSError as exc:
             return ("Kimi Hooks", f"Failed to write hooks: {exc}", False)
