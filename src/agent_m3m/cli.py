@@ -1315,6 +1315,19 @@ def _build_parser(prog: str = "m3m") -> argparse.ArgumentParser:
     init_parser.add_argument("--no-hooks", action="store_true", help="Do not install lifecycle hooks")
     init_parser.add_argument("--non-interactive", action="store_true", help="Skip interactive setup")
 
+    hooks_parser = subparsers.add_parser("hooks", help="Install or selectively remove agent lifecycle hooks")
+    hooks_subparsers = hooks_parser.add_subparsers(dest="hooks_command", required=True)
+    hooks_install_parser = hooks_subparsers.add_parser("install", help="Install hooks for selected agents")
+    hooks_install_parser.add_argument(
+        "--agents", required=True, help="Comma-separated agents: codex,claude,kimi,opencode"
+    )
+    hooks_uninstall_parser = hooks_subparsers.add_parser(
+        "uninstall", help="Remove only m3m-managed hooks for selected agents"
+    )
+    hooks_uninstall_parser.add_argument(
+        "--agents", required=True, help="Comma-separated agents: codex,claude,kimi,opencode"
+    )
+
     import_parser = subparsers.add_parser("import", help="Import memories explicitly")
     import_parser.add_argument("--path", type=str, help="Specific file or folder path")
     import_parser.add_argument("--dry-run", action="store_true", help="Report what would be imported without saving")
@@ -1567,6 +1580,20 @@ def main():
                 print(f"[{ '✓' if ok else '✗' }] {name}: {msg}")
         elif not args.no_hooks:
             print("Hooks not installed. Use --agents codex,claude (or --no-hooks to silence this message).")
+        return
+
+    if args.command == "hooks":
+        agents = [agent.strip() for agent in args.agents.split(",") if agent.strip()]
+        if not agents:
+            print("Provide at least one supported agent.", file=sys.stderr)
+            raise SystemExit(2)
+        installer = HooksInstaller(home_dir=config.home_dir)
+        action = installer.install_all if args.hooks_command == "install" else installer.uninstall_all
+        results = action(agents)
+        for name, message, ok in results:
+            print(f"[{ '✓' if ok else '✗' }] {name}: {message}")
+        if not all(ok for _name, _message, ok in results):
+            raise SystemExit(1)
         return
 
     if args.command == "import":

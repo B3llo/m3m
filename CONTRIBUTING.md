@@ -19,11 +19,12 @@ python -m pip install -e ".[dev]"
 Run the local checks before opening a pull request:
 
 ```bash
-ruff check src tests
-python -m compileall src tests
+ruff check src tests evals
+python -m compileall src tests evals
 python -m unittest discover -s tests -v
 coverage run --source=agent_m3m -m unittest discover -s tests
 coverage report --fail-under=75
+python evals/run_retrieval_eval.py --min-recall-at-5 1.0 --min-mrr 0.8
 ```
 
 For OpenCode integration changes, also validate the checked-in harness:

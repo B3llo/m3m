@@ -26,6 +26,17 @@ class HooksInstaller:
                 results.append((agent, f"Unsupported agent: {agent}", False))
         return results
 
+    def uninstall_all(self, agents: List[str]) -> List[Tuple[str, str, bool]]:
+        """Remove only m3m-managed integration entries for selected agents."""
+        results = []
+        for agent in agents:
+            uninstaller = getattr(self, f"uninstall_{agent}_hooks", None)
+            if uninstaller:
+                results.append(uninstaller())
+            else:
+                results.append((agent, f"Unsupported agent: {agent}", False))
+        return results
+
     def _atomic_json_write(self, path: Path, data: Dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         if path.is_file():
@@ -143,8 +154,8 @@ class HooksInstaller:
                 )
         return data, None
 
-    @staticmethod
-    def _remove_kimi_m3m_hook_blocks(content: str) -> str:
+    @classmethod
+    def _remove_kimi_m3m_hook_blocks(cls, content: str) -> str:
         """Remove complete m3m-owned ``[[hooks]]`` entries from Kimi TOML.
 
         Removing only the command line leaves the preceding array-table header
@@ -184,9 +195,9 @@ class HooksInstaller:
                     value = json.loads(assignment) if assignment.startswith('"') else assignment[1:-1]
                 except (TypeError, ValueError):
                     value = assignment
-                if isinstance(value, str) and re.match(
-                    r"^(?:\S*[/\\])?m3m\s+(?:context|save)(?:\s|$)",
-                    value.strip(),
+                if isinstance(value, str) and (
+                    cls._is_m3m_command(value, "context")
+                    or cls._is_m3m_command(value, "save")
                 ):
                     managed = True
                     break
@@ -277,6 +288,13 @@ class HooksInstaller:
 
     def install_opencode_hooks(self) -> Tuple[str, str, bool]:
         path = self.home_dir / ".config" / "opencode" / "plugins" / "m3m-memory.js"
+        if path.exists():
+            try:
+                existing = path.read_text(encoding="utf-8")
+            except (OSError, UnicodeError) as exc:
+                return ("OpenCode Plugin", f"Failed to read existing plugin; file left unchanged: {exc}", False)
+            if not existing.startswith("// OpenCode memory harness for m3m.\n"):
+                return ("OpenCode Plugin", f"Refusing to overwrite unrecognized plugin at {path}", False)
         plugin = """// OpenCode memory harness for m3m.
 // OpenCode loads local plugins as ESM modules from ~/.config/opencode/plugins.
 //
@@ -426,3 +444,86 @@ export const M3mMemoryPlugin = async ({ client }) => ({
             return ("OpenCode Plugin", f"Installed in {path}", True)
         except OSError as exc:
             return ("OpenCode Plugin", f"Failed to write plugin: {exc}", False)
+
+    def _uninstall_json_hooks(self, path: Path, label: str) -> Tuple[str, str, bool]:
+        if not path.exists():
+            return (label, f"No configuration found at {path}; nothing to remove", True)
+        data, error = self._load_json_config(path, label)
+        if error or data is None:
+            return (label, error or f"Failed to read {path}", False)
+
+        hooks = data.get("hooks")
+        if not isinstance(hooks, dict):
+            return (label, f"No m3m hooks found in {path}", True)
+
+        changed = False
+        for event, subcommands in {
+            "SessionStart": ("context",),
+            "UserPromptSubmit": ("context",),
+            "SessionEnd": ("save",),
+            "Stop": ("save",),
+        }.items():
+            original = self._entries(hooks, event)
+            cleaned = original
+            for subcommand in subcommands:
+                cleaned = self._remove_m3m_commands(cleaned, subcommand)
+            if cleaned != original:
+                hooks[event] = cleaned
+                changed = True
+
+        if not changed:
+            return (label, f"No m3m hooks found in {path}", True)
+        try:
+            self._atomic_json_write(path, data)
+            return (label, f"Removed m3m hooks from {path}", True)
+        except (OSError, ValueError) as exc:
+            return (label, f"Failed to write settings: {exc}", False)
+
+    def uninstall_claude_hooks(self) -> Tuple[str, str, bool]:
+        return self._uninstall_json_hooks(
+            self.home_dir / ".claude" / "settings.json",
+            "Claude Code Hooks",
+        )
+
+    def uninstall_codex_hooks(self) -> Tuple[str, str, bool]:
+        return self._uninstall_json_hooks(
+            self.home_dir / ".codex" / "hooks.json",
+            "OpenAI Codex Hooks",
+        )
+
+    def uninstall_kimi_hooks(self) -> Tuple[str, str, bool]:
+        path = self.home_dir / ".kimi" / "hooks.toml"
+        if not path.exists():
+            return ("Kimi Hooks", f"No configuration found at {path}; nothing to remove", True)
+        try:
+            content = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            return ("Kimi Hooks", f"Failed to read hooks; file left unchanged: {exc}", False)
+        retained = self._remove_kimi_m3m_hook_blocks(content)
+        if retained.rstrip() == content.rstrip():
+            return ("Kimi Hooks", f"No m3m hooks found in {path}", True)
+        updated = f"{retained}\n" if retained else ""
+        try:
+            self._atomic_text_write(path, updated)
+            return ("Kimi Hooks", f"Removed m3m hooks from {path}", True)
+        except OSError as exc:
+            return ("Kimi Hooks", f"Failed to write hooks: {exc}", False)
+
+    def uninstall_opencode_hooks(self) -> Tuple[str, str, bool]:
+        path = self.home_dir / ".config" / "opencode" / "plugins" / "m3m-memory.js"
+        if not path.exists():
+            return ("OpenCode Plugin", f"No plugin found at {path}; nothing to remove", True)
+        try:
+            content = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            return ("OpenCode Plugin", f"Failed to read plugin; file left unchanged: {exc}", False)
+        if not (
+            content.startswith("// OpenCode memory harness for m3m.\n")
+            and "export const M3mMemoryPlugin" in content
+        ):
+            return ("OpenCode Plugin", f"Refusing to remove unrecognized plugin at {path}", False)
+        try:
+            path.unlink()
+            return ("OpenCode Plugin", f"Removed m3m plugin from {path}", True)
+        except OSError as exc:
+            return ("OpenCode Plugin", f"Failed to remove plugin: {exc}", False)

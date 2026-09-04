@@ -40,6 +40,8 @@ It gives you a **universal personal memory** across different agents without loc
 6. **Confidence-based Auto-Approval:** Session-end extractions with `confidence >= auto_approve_confidence` (default `0.9`, in `config.toml` `[general]`) become active immediately; lower-confidence captures and contradictions stay `pending` for review (`m3m approve`, `m3m approve --all [--min-confidence N]`, reject with `m3m forget --pending`).
 7. **Value Signals & Consolidation:** Memories injected into context earn `use_count`/`last_used` feedback (bounded to once per day per item), which feeds ranking and `m3m consolidate`: it rebuilds `CORE.md` from the most valuable memories (pinned > used > trusted > recent) within a line budget, and reports never-used candidates for archival.
 
+Design and operating references: [architecture](docs/architecture.md), [privacy and threat model](docs/privacy-and-threat-model.md), [operations](docs/operations.md), and [memory format](docs/memory-format.md).
+
 ---
 
 ## 🚀 Quick Start
@@ -166,10 +168,13 @@ m3m doctor
 | Command | Description |
 | :--- | :--- |
 | `m3m init [--global]` | Initialize global (`~/.agent-m3m`) or local project memory (`.agent-m3m`). Use `--agents` to install hooks explicitly. |
+| `m3m hooks install --agents codex,claude` | Install or refresh only the selected lifecycle integrations. |
+| `m3m hooks uninstall --agents codex,claude` | Remove only m3m-managed entries while preserving unrelated hooks and settings. |
 | `m3m import [--path PATH]` | Explicitly import memories from a legacy tool or steering file. |
 | `m3m context [--prompt "..."]` | Output bounded Core Memory plus prompt-specific archival retrieval. |
 | `m3m search "<query>"` | Fast local FTS5 search with BM25 + metadata ranking. Supports `--scope`, `--status`, `--json`, and `--debug`. |
 | `m3m save [--stdin]` | Extract and save durable memories. The Codex hook uses direct `Stop` capture; `--require-approval` keeps extracted items pending. |
+| `m3m queue process [--retry-failed]` | Process durable SessionEnd captures explicitly; scheduler subcommands are available on macOS. |
 | `m3m list` | List active memories grouped by type with topic notes. Cut previews end in `…`; use `--full` for everything, `--topic SLUG` / `--type TYPE` to filter. |
 | `m3m show <id>` | Print full Markdown & YAML frontmatter of a memory by ID. |
 | `m3m forget <id>` | Archive a memory by setting its status to `archived`. |
@@ -192,6 +197,9 @@ m3m doctor
 | `m3m export-universal [--target ...] [--all] [--dry-run] [--limit N]` | Export to the universal agent files (AGENTS.md, MEMORY.md, per-tool rules) inside managed blocks that never clobber your content. |
 | `m3m doctor` | Run diagnostic health checks on storage, config, and agent CLI binaries. |
 | `m3m diagnostics [--limit 20]` | Show structured local outcomes and failures from memory-save hooks. |
+| `m3m audit [--limit 20]` | Inspect the same structured capture audit stream, optionally as JSON. |
+| `m3m remember "..."` | Save one explicit correction or decision without invoking an LLM. |
+| `m3m handoff --summary "..."` | Save a bounded project handoff for the next agent session. |
 | `m3m mcp` | Run the local MCP stdio server (any MCP client gets memory tools over the same Markdown store). |
 
 ---
@@ -308,7 +316,7 @@ m3m init --agents opencode --non-interactive
 
 It writes an ESM plugin to `~/.config/opencode/plugins/m3m-memory.js`, a directory OpenCode loads at startup. Memory is injected **before the first token of every turn**, matching the push-core/pull-tail pattern used by Zep, Letta and Claude Code: the `chat.message` hook stashes each new user prompt and rebuilds the context at most once per turn (with prompt-relevant archival retrieval), and the `experimental.chat.system.transform` hook injects the `m3m context` block into the system prompt on every LLM request — so the first response already sees memory, the block sits in the trusted system position, and it survives compaction. The `session.idle` hook captures user/assistant text after the session goes idle, excluding unchanged transcripts so it does not feed memory back into extraction.
 
-Kimi remains available through `m3m init --agents kimi`. All integrations remain local and can be removed by restoring the `.bak` configuration files or deleting the generated plugin.
+Kimi remains available through `m3m init --agents kimi`. All integrations remain local. Remove them safely with `m3m hooks uninstall --agents kimi` (or another comma-separated selection); unrelated hooks and settings are preserved.
 
 ---
 

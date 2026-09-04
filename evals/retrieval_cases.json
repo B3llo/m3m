@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"id": "package-manager", "query": "which package manager should JavaScript projects use", "memory": "JavaScript projects use orbitpm as the package manager."},
+    {"id": "database-migration", "query": "how should production PostgreSQL indexes be created", "memory": "Create PostgreSQL indexes concurrently during production migrations."},
+    {"id": "container-user", "query": "Docker containers root user policy", "memory": "Application processes must not run as root inside Docker containers."},
+    {"id": "api-models", "query": "FastAPI response typing convention", "memory": "FastAPI endpoints return typed Pydantic response models."},
+    {"id": "cache-expiry", "query": "Redis session cache expiration", "memory": "Redis session cache entries expire after 24 hours."},
+    {"id": "test-runner", "query": "modern TypeScript unit test runner", "memory": "Modern TypeScript projects use Vitest for unit tests."},
+    {"id": "preview-environment", "query": "sample application preview environment", "memory": "The sample application uses isolated preview environments."},
+    {"id": "safe-release", "query": "what must run before pushing the main branch", "memory": "Run the complete test suite before pushing changes to the main branch."}
+  ]
+}
