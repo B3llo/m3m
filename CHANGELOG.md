@@ -6,6 +6,13 @@ All notable changes to agent-m3m will be documented in this file. The project fo
 
 ### Added
 
+- Corroboration: re-observed memories strengthen their keeper instead of piling files, with a bounded ranking bonus.
+- Multilingual query expansion (prefix morphology plus a curated EN/PT/ES/FR/DE/IT synonym map with per-project `synonyms.md` overlays), applied only when strict FTS underfills; disable with `query_expansion = false`.
+- Contradiction guard: near-duplicates with asymmetric negation, divergent numbers, or swapped antonyms route to the LLM instead of a silent skip.
+- Hook-log rotation, bounded diagnostics reads, and `m3m clean --prune-logs/--prune-queue` (dry-run by default).
+- `m3m context --no-record-usage` for high-frequency hooks.
+- Doctor hygiene checks (config permissions, log and queue sizes).
+- Reconcile (73 cases, adversarial families) and semantic (zero-overlap) evaluation corpora with gates.
 - CI coverage enforcement, distribution validation, and clean wheel smoke testing.
 - Contribution, security, community, and release documentation.
 - Dependabot configuration for GitHub Actions and Python development dependencies.

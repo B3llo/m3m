@@ -47,6 +47,46 @@ class MemoryRetriever:
         self.store = store or MemoryStore(self.config)
         self.db_path = self._index_path()
         self._ensure_db_dir()
+        # Synonym overlay cache: (global_mtime, project_mtime, synonym_map).
+        self._synonym_cache: Optional[Tuple[Any, Any, Dict[str, List[str]]]] = None
+
+    def _synonym_paths(self) -> Tuple[Path, Path]:
+        return (
+            self.config.global_dir / "synonyms.md",
+            self.config.project_dir / "synonyms.md" if self.config.project_dir else None,
+        )
+
+    def _load_synonym_map(self) -> Dict[str, List[str]]:
+        """Seed map plus global/project synonyms.md overlays (mtime-cached).
+
+        Missing or malformed overlay files are ignored fail-open; the seed
+        always applies so stock installs expand queries out of the box.
+        """
+        from .textutils import build_synonym_map, parse_synonyms_md
+
+        global_path, project_path = self._synonym_paths()
+        signatures = []
+        groups: List[Any] = []
+        for path in (global_path, project_path):
+            if path is None:
+                signatures.append(None)
+                continue
+            try:
+                mtime = path.stat().st_mtime_ns if path.is_file() else None
+            except OSError:
+                mtime = None
+            signatures.append(mtime)
+            if mtime is not None:
+                try:
+                    groups.extend(parse_synonyms_md(path.read_text(encoding="utf-8")))
+                except (OSError, ValueError):
+                    continue
+        key = tuple(signatures)
+        if self._synonym_cache is not None and self._synonym_cache[0] == key[0] and self._synonym_cache[1] == key[1]:
+            return self._synonym_cache[2]
+        synonym_map = build_synonym_map(groups)
+        self._synonym_cache = (key[0], key[1], synonym_map)
+        return synonym_map
 
     def _index_path(self) -> Path:
         # The global store is shared, but project memories must never leak into
@@ -315,12 +355,51 @@ class MemoryRetriever:
                 except sqlite3.OperationalError:
                     pass
 
+        # Expansion tier (prefixes + curated synonyms): runs only when the
+        # strict tiers underfilled, so fully-matching queries behave exactly
+        # as before. Adds candidates; scoring below is unchanged.
+        expanded_only_ids: set = set()
+        if (
+            getattr(self.config, "query_expansion", True)
+            and len(rows) < candidate_limit
+            and query_tokens
+        ):
+            from .textutils import expand_query_terms
+
+            try:
+                expanded_terms = expand_query_terms(query_tokens, self._load_synonym_map())
+            except Exception:
+                expanded_terms = []
+            if expanded_terms:
+                expanded_query = " OR ".join(expanded_terms)
+                try:
+                    extra_rows = self._fetch_rows(expanded_query, candidate_limit, scope_value, status_value)
+                    seen_ids = {row["id"] for row in rows}
+                    for extra_row in extra_rows:
+                        if extra_row["id"] not in seen_ids:
+                            rows.append(extra_row)
+                            seen_ids.add(extra_row["id"])
+                            expanded_only_ids.add(extra_row["id"])
+                except sqlite3.OperationalError:
+                    pass
+
         if not rows:
             return []
 
-        bm25_scores = [float(row["bm25_score"]) for row in rows]
-        min_bm25 = min(bm25_scores)
-        max_bm25 = max(bm25_scores)
+        # Normalize BM25 per provenance: strict rows keep exactly the scale
+        # they would have with expansion disabled (bit-identical ordering),
+        # while expansion-only rows are scaled among themselves and then
+        # discounted. Different MATCH queries produce incomparable raw
+        # scores, so they must never share one min/max range.
+        def _range(values: list) -> tuple:
+            if not values:
+                return 0.0, 0.0
+            return min(values), max(values)
+
+        strict_scores = [float(row["bm25_score"]) for row in rows if row["id"] not in expanded_only_ids]
+        expanded_scores = [float(row["bm25_score"]) for row in rows if row["id"] in expanded_only_ids]
+        strict_min, strict_max = _range(strict_scores)
+        expanded_min, expanded_max = _range(expanded_scores)
         query_words = {word.lower() for word in query_tokens}
         current_project = self.config.project_id
         candidates: List[ScoredCandidate] = []
@@ -369,7 +448,19 @@ class MemoryRetriever:
             seen_normalized_contents.add(norm_content)
 
             raw_bm25 = float(row["bm25_score"])
-            norm_lexical = 1.0 if max_bm25 == min_bm25 else (max_bm25 - raw_bm25) / (max_bm25 - min_bm25 + 1e-6)
+            if row["id"] in expanded_only_ids and strict_scores:
+                # Expansion-only row alongside strict matches: scale within
+                # the expansion set. Tier ordering below keeps strict matches
+                # first, so this scale only orders rescue rows relatively.
+                if expanded_max == expanded_min:
+                    norm_lexical = 1.0
+                else:
+                    norm_lexical = (expanded_max - raw_bm25) / (expanded_max - expanded_min + 1e-6)
+            elif strict_max == strict_min:
+                # Single-scale case: identical to expansion-disabled behavior.
+                norm_lexical = 1.0
+            else:
+                norm_lexical = (strict_max - raw_bm25) / (strict_max - strict_min + 1e-6)
             tags_list = [tag.lower() for tag in item.tags]
             entities_list = [entity.lower() for entity in item.entities]
             tag_bonus = 0.10 if any(tag in query_words for tag in tags_list) else 0.0
@@ -433,7 +524,15 @@ class MemoryRetriever:
             }
             candidates.append(ScoredCandidate(item, round(total_score, 3), breakdown))
 
-        candidates.sort(key=lambda candidate: candidate.total_score, reverse=True)
+        # Tier ordering: rows the user's literal words matched always come
+        # before expansion-only rescue rows (each tier ordered by score).
+        # This is the recall-only guarantee: expansion can append results
+        # past the strict set but can never reorder it. When the strict set
+        # is empty, rescue rows rank purely by score.
+        candidates.sort(key=lambda candidate: (
+            0 if candidate.item.id not in expanded_only_ids else 1,
+            -candidate.total_score,
+        ))
         if self.config.llm_rerank and len(candidates) > 1:
             rerank_limit = max(int(self.config.top_candidates), 1)
             candidates = self._llm_rerank(query, candidates[:rerank_limit]) + candidates[rerank_limit:]

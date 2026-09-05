@@ -215,6 +215,25 @@ Search uses a transparent scoring formula combining lexical BM25, entity matchin
 m3m search "orbitpm" --debug
 ```
 
+### Multilingual query expansion
+
+Strict FTS matching runs first and behaves exactly as before when it fills
+results. Only when it underfills, a second tier adds prefix morphology
+(`reembolso`/`reembolsos`) plus a curated synonym map, so a Portuguese
+question finds an English memory (`reembolso` → `refunds`) — and likewise
+for Spanish, French, German and Italian terms in the seed. Scoring is
+unchanged; expansion only widens the candidate set. Disable it with
+`query_expansion = false` under `[retrieval]` in `~/.agent-m3m/config.toml`.
+
+Curate your team's vocabulary in Markdown (the seed stays in code so stock
+installs work out of the box):
+
+```md
+# ~/.agent-m3m/synonyms.md  (or <repo>/.agent-m3m/synonyms.md per project)
+# one concept per line: term, alt: synonym1, synonym2
+deployar: deploy, rollout
+```
+
 ---
 
 ## 🗂️ Topics & Memory Quality
@@ -225,7 +244,7 @@ Memories carry an optional `topic` slug (e.g. `storefront`, `billing-api`, `infr
 - **Layered injection:** `m3m context` always injects core rules, then groups prompt-relevant archival memories under their topic headers, so each block states which project/system it applies to.
 - **Topic-aware ranking:** search boosts memories whose topic matches the prompt.
 - **English canonical content:** extraction writes complete, self-contained English sentences that name the concrete project/system (never mid-thought fragments), with at most 8 memories per extraction.
-- **Write-time dedup:** new candidates are reconciled against recent memories before saving (exact → Jaccard ≥ 0.80 skip → LLM reconcile in the 0.30–0.80 band).
+- **Write-time dedup:** new candidates are reconciled against recent memories before saving (exact → Jaccard ≥ 0.80 skip → Jaccard ≥ 0.60 auto-skip → LLM reconcile in the 0.30–0.60 band). Skipped candidates corroborate the keeper instead of piling another file; pairs that look like contradictions (negation, divergent numbers) always go to the LLM, never to a silent skip.
 - **Cleanup:** `m3m dedup` catches lexical duplicates; `m3m dedup --semantic` asks the provider to merge each cluster into one canonical statement. Both supersede (never delete) and stay reversible via `m3m restore`.
 - **Legacy migration:** `m3m reorganize --apply` catalogues old untagged memories into the topic taxonomy; `m3m topics --build --apply` compiles each topic into a curated digest page.
 - **Compiled digests in context:** once a topic page exists, `m3m context` replaces that topic's raw fragments with the bounded page digest (`max_topic_page_chars`, default 1200) — denser signal, fewer tokens.

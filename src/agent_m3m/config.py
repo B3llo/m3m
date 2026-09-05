@@ -42,6 +42,7 @@ class Config:
         self.top_candidates = 20
         self.top_results = 5
         self.llm_rerank = False
+        self.query_expansion = True
         self.topic_seeds: list[str] = []
         self.secret_scrubbing = True
         self.max_core_lines = 50
@@ -157,6 +158,7 @@ class Config:
             self.top_candidates = ret.get("top_candidates", self.top_candidates)
             self.top_results = ret.get("top_results", self.top_results)
             self.llm_rerank = ret.get("llm_rerank", self.llm_rerank)
+            self.query_expansion = ret.get("query_expansion", self.query_expansion)
 
             topics = data.get("topics", {})
             raw_seeds = topics.get("seeds")
@@ -273,6 +275,7 @@ class Config:
             f"top_candidates = {self.top_candidates}\n"
             f"top_results = {self.top_results}\n"
             f"llm_rerank = {str(self.llm_rerank).lower()}\n"
+            f"query_expansion = {str(self.query_expansion).lower()}\n"
             "\n"
             "[topics]\n"
             f"seeds = {json.dumps(self.topic_seeds, ensure_ascii=False)}\n"

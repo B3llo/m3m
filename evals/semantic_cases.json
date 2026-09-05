@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "description": "Zero-overlap cross-language retrieval: queries share no content tokens with their memories (strict FTS finds nothing) and must be rescued by the expansion tier (prefixes + synonym map). Negative cases must surface no hard memory (precision guard).",
+  "positive": [
+    {"id": "sem-1", "query": "qual o prazo de reembolso", "memory": "The billing service settles Pix refunds within one business day."},
+    {"id": "sem-2", "query": "preciso de aprovação para aplicar", "memory": "Terraform apply is forbidden without explicit approval."},
+    {"id": "sem-3", "query": "política de desconto para clientes", "memory": "Customer discounts require manager sign-off above ten percent."},
+    {"id": "sem-4", "query": "onde guardo a senha do banco", "memory": "Database credentials live in the vault, never in code."},
+    {"id": "sem-5", "query": "como pedir estorno de cobrança", "memory": "Chargebacks must be contested with evidence within seven days."},
+    {"id": "sem-6", "query": "horário da implantação de hoje", "memory": "Production deploys happen in the maintenance window after midnight."},
+    {"id": "sem-7", "query": "o que fazer quando a fila falha", "memory": "Failed queue jobs stay for manual retry and are never auto-deleted."},
+    {"id": "sem-8", "query": "quem aprova reembolso", "memory_id": "sem-1"},
+    {"id": "sem-9", "query": "cuál es el plazo de reembolso", "memory_id": "sem-1"},
+    {"id": "sem-10", "query": "dónde están las credenciales de la base de datos", "memory_id": "sem-4"}
+  ],
+  "negative": [
+    {"id": "neg-1", "query": "qual o prazo de entrega"},
+    {"id": "neg-2", "query": "como configurar o wifi do escritório"},
+    {"id": "neg-3", "query": "receita de bolo de cenoura"}
+  ]
+}
