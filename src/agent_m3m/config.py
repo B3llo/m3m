@@ -53,6 +53,13 @@ class Config:
         self.local_only = False
         self.auto_approve_confidence = 0.9
         self.export_universal_max_lines = 150
+        # Reconcile similarity bands (Jaccard on meaningful tokens):
+        # >= near_duplicate_jaccard: deterministic SKIP (+corroborate);
+        # >= auto_skip_jaccard: auto SKIP (+corroborate) unless the
+        # contradiction guard trips; >= ambiguous_jaccard: one LLM call.
+        self.near_duplicate_jaccard = 0.80
+        self.auto_skip_jaccard = 0.60
+        self.ambiguous_jaccard = 0.30
         
         self.load()
 
@@ -125,6 +132,14 @@ class Config:
                 ))
             except (TypeError, ValueError):
                 pass
+            for attr in ("near_duplicate_jaccard", "auto_skip_jaccard", "ambiguous_jaccard"):
+                try:
+                    setattr(self, attr, max(0.0, min(1.0, float(gen.get(attr, getattr(self, attr))))))
+                except (TypeError, ValueError):
+                    pass
+            # Preserve band order: ambiguous <= auto <= near.
+            self.auto_skip_jaccard = min(self.auto_skip_jaccard, self.near_duplicate_jaccard)
+            self.ambiguous_jaccard = min(self.ambiguous_jaccard, self.auto_skip_jaccard)
             
             prov = data.get("providers", {})
             self.active_provider = prov.get("active_provider", self.active_provider)
@@ -239,6 +254,9 @@ class Config:
             f"local_only = {str(self.local_only).lower()}\n"
             f"auto_approve_confidence = {float(self.auto_approve_confidence):.2f}\n"
             f"export_universal_max_lines = {self.export_universal_max_lines}\n"
+            f"near_duplicate_jaccard = {float(self.near_duplicate_jaccard):.2f}\n"
+            f"auto_skip_jaccard = {float(self.auto_skip_jaccard):.2f}\n"
+            f"ambiguous_jaccard = {float(self.ambiguous_jaccard):.2f}\n"
             "\n"
             "[providers]\n"
             f"active_provider = {toml_string(self.active_provider)}\n"

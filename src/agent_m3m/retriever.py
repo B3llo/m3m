@@ -40,7 +40,7 @@ class ScoredCandidate:
 
 class MemoryRetriever:
     # Bump when the index schema changes so existing databases rebuild.
-    INDEX_SCHEMA_VERSION = "2"
+    INDEX_SCHEMA_VERSION = "3"
 
     def __init__(self, store: Optional[MemoryStore] = None, config: Optional[Config] = None):
         self.config = config or Config()
@@ -154,6 +154,8 @@ class MemoryRetriever:
                         expires_at TEXT,
                         last_used TEXT,
                         use_count INTEGER NOT NULL DEFAULT 0,
+                        corroborated_count INTEGER NOT NULL DEFAULT 0,
+                        last_corroborated TEXT,
                         pinned INTEGER NOT NULL DEFAULT 0
                     )
                     """
@@ -175,8 +177,8 @@ class MemoryRetriever:
                         """
                         INSERT OR REPLACE INTO memory_meta
                         (id, scope, project_id, type, status, confidence, topic, created, updated,
-                         file_path, source, source_session, evidence_json, expires_at, last_used, use_count, pinned)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         file_path, source, source_session, evidence_json, expires_at, last_used, use_count, corroborated_count, last_corroborated, pinned)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             item.id,
@@ -195,6 +197,8 @@ class MemoryRetriever:
                             item.expires_at,
                             item.last_used,
                             item.use_count,
+                            int(getattr(item, "corroborated_count", 0) or 0),
+                            getattr(item, "last_corroborated", None),
                             1 if item.pinned else 0,
                         ),
                     )
@@ -256,7 +260,7 @@ class MemoryRetriever:
                 SELECT f.id, f.content, f.tags, f.entities, bm25(memory_fts) AS bm25_score,
                        m.scope, m.project_id, m.type, m.status, m.confidence, m.topic, m.created,
                        m.updated, m.file_path, m.source, m.source_session, m.evidence_json,
-                       m.expires_at, m.last_used, m.use_count, m.pinned
+                       m.expires_at, m.last_used, m.use_count, m.corroborated_count, m.last_corroborated, m.pinned
                 FROM memory_fts f
                 JOIN memory_meta m ON f.id = m.id
                 WHERE memory_fts MATCH ?
@@ -350,6 +354,8 @@ class MemoryRetriever:
                 expires_at=row["expires_at"],
                 last_used=row["last_used"],
                 use_count=int(row["use_count"] or 0),
+                corroborated_count=int(row["corroborated_count"] or 0) if "corroborated_count" in row.keys() else 0,
+                last_corroborated=row["last_corroborated"] if "last_corroborated" in row.keys() else None,
                 pinned=bool(row["pinned"]) if "pinned" in row.keys() else False,
                 file_path=row["file_path"],
             )
@@ -384,8 +390,17 @@ class MemoryRetriever:
                 pass
             # Reinforcement signals: repeatedly injected memories and pinned
             # memories earn a bounded bonus on top of lexical relevance.
+            # Corroboration (independent re-observation across sessions) uses
+            # the same curve as usage so repeated rules outrank singletons.
             is_pinned = bool(row["pinned"]) if "pinned" in row.keys() else False
             use_bonus = min(0.15, 0.05 * math.log1p(max(0, int(row["use_count"] or 0))))
+            corroborated_raw = 0
+            if "corroborated_count" in row.keys():
+                try:
+                    corroborated_raw = max(0, int(row["corroborated_count"] or 0))
+                except (TypeError, ValueError):
+                    corroborated_raw = 0
+            corroboration_bonus = min(0.15, 0.05 * math.log1p(corroborated_raw))
             pin_bonus = 0.25 if is_pinned else 0.0
             # Topic match: when the prompt names a topic (e.g. "storefront" or
             # "nightly ops" against topic "nightly-ops"), that topic's memories rank up.
@@ -402,7 +417,7 @@ class MemoryRetriever:
 
             total_score = (
                 norm_lexical * 0.40 + tag_bonus + entity_bonus + project_bonus
-                + status_bonus + recency_bonus + use_bonus + pin_bonus + topic_bonus
+                + status_bonus + recency_bonus + use_bonus + corroboration_bonus + pin_bonus + topic_bonus
             )
             breakdown = {
                 "lexical": round(norm_lexical * 0.40, 3),
@@ -412,6 +427,7 @@ class MemoryRetriever:
                 "status_bonus": round(status_bonus, 3),
                 "recency_bonus": round(recency_bonus, 3),
                 "use_bonus": round(use_bonus, 3),
+                "corroboration_bonus": round(corroboration_bonus, 3),
                 "pin_bonus": round(pin_bonus, 3),
                 "topic_bonus": round(topic_bonus, 3),
             }

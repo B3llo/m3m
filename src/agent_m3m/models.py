@@ -86,6 +86,11 @@ class MemoryItem:
     expires_at: Optional[str] = None
     last_used: Optional[str] = None
     use_count: int = 0
+    # Corroboration: how many times later extractions re-observed this memory
+    # instead of adding a duplicate. Additive signal only; never drives
+    # deletion. Missing on legacy files -> 0/None.
+    corroborated_count: int = 0
+    last_corroborated: Optional[str] = None
     pinned: bool = False
     file_path: Optional[str] = None
 
@@ -163,6 +168,8 @@ class MemoryItem:
             f"expires_at: {self._quote(self.expires_at)}\n"
             f"last_used: {self._quote(self.last_used)}\n"
             f"use_count: {int(self.use_count)}\n"
+            f"corroborated_count: {int(self.corroborated_count)}\n"
+            f"last_corroborated: {self._quote(self.last_corroborated)}\n"
             f"pinned: {'true' if self.pinned else 'false'}\n"
             "---\n\n"
             f"{self.content.strip()}\n"
@@ -246,6 +253,8 @@ class MemoryItem:
             expires_at=metadata.get("expires_at"),
             last_used=metadata.get("last_used"),
             use_count=int(metadata.get("use_count") or 0),
+            corroborated_count=int(metadata.get("corroborated_count") or 0),
+            last_corroborated=metadata.get("last_corroborated"),
             pinned=bool(metadata.get("pinned") or False),
             file_path=file_path,
         )

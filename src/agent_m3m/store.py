@@ -604,6 +604,47 @@ class MemoryStore:
         except (TypeError, ValueError):
             return None
 
+    def record_corroboration(self, item_ids: List[str], now: Optional[datetime] = None) -> int:
+        """Reinforce memories re-observed by later extractions.
+
+        Unlike record_usage (context injection), corroboration fires when a
+        new candidate is skipped as a duplicate of an existing keeper: the
+        rule was independently stated again, so the keeper gains strength.
+        Bounded (top 20 ids) and never touches `updated`, `content`,
+        `use_count` or any other field, so recency and content keep their
+        meaning. Fail-open per item; returns the number of keepers bumped.
+        """
+        wanted = {str(value) for value in item_ids[:20] if value}
+        if not wanted:
+            return 0
+        current = now or datetime.now(timezone.utc)
+        bumped = 0
+        for item in self.list_items():
+            if item.id not in wanted:
+                continue
+            if (item.status.value if isinstance(item.status, MemoryStatus) else str(item.status)) != "active":
+                continue
+            try:
+                item.corroborated_count = int(item.corroborated_count or 0) + 1
+            except (TypeError, ValueError):
+                item.corroborated_count = 1
+            item.last_corroborated = current.isoformat()
+            try:
+                base_dir = self.global_dir if item.scope == MemoryScope.GLOBAL else self.project_dir
+                if base_dir is None:
+                    continue
+                folder = self._get_target_dir(item)
+                with self._write_lock(base_dir):
+                    self._atomic_write(
+                        folder / f"{item.id}.md",
+                        item.to_markdown(),
+                        private=item.scope == MemoryScope.GLOBAL,
+                    )
+                bumped += 1
+            except Exception as exc:
+                self.last_errors.append(f"could not record corroboration for {item.id}: {exc}")
+        return bumped
+
     def record_usage(self, item_ids: List[str], now: Optional[datetime] = None) -> int:
         """Reinforce injected memories by bumping use_count/last_used in Markdown.
 

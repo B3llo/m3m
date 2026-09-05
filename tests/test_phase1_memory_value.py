@@ -234,7 +234,7 @@ class TestReconciliation(Phase1TestBase):
             project_id=self.config.project_id,
             status=MemoryStatus.ACTIVE,
         ))
-        candidate = "Deploy with scenario-specific StackSpec plans and versioned shared state."
+        candidate = "Deploy with scenario-specific StackSpec plans and versioned shared state across multiple environments."
         runner = ScriptedRunner([
             self.memories_response(candidate),
             json.dumps({"decisions": [{"candidate": 0, "action": "UPDATE", "id": "mem_target"}]}),
@@ -261,7 +261,7 @@ class TestReconciliation(Phase1TestBase):
             project_id=self.config.project_id,
             status=MemoryStatus.ACTIVE,
         ))
-        candidate = "Deploy with scenario-specific StackSpec plans and versioned shared state."
+        candidate = "Deploy with scenario-specific StackSpec plans and versioned shared state across multiple environments."
         runner = ScriptedRunner([
             self.memories_response(candidate, confidence=0.7),
             json.dumps({"decisions": [{"candidate": 0, "action": "UPDATE", "id": "mem_target"}]}),
@@ -287,7 +287,7 @@ class TestReconciliation(Phase1TestBase):
             project_id=self.config.project_id,
             status=MemoryStatus.ACTIVE,
         ))
-        candidate = "Deploy with scenario-specific StackSpec plans and versioned shared state."
+        candidate = "Deploy with scenario-specific StackSpec plans and versioned shared state across multiple environments."
         runner = ScriptedRunner([
             self.memories_response(candidate),
             json.dumps({"decisions": [{"candidate": 0, "action": "SUPERSEDE", "id": "mem_old"}]}),
@@ -313,7 +313,7 @@ class TestReconciliation(Phase1TestBase):
             project_id=self.config.project_id,
             status=MemoryStatus.ACTIVE,
         ))
-        candidate = "Deploy with scenario-specific StackSpec plans and versioned shared state."
+        candidate = "Deploy with scenario-specific StackSpec plans and versioned shared state across multiple environments."
 
         class FailingReconcileRunner(ScriptedRunner):
             def run_prompt(self, prompt, **kwargs):

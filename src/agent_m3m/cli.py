@@ -631,7 +631,7 @@ CORE_SECTION_TITLES = SECTION_TITLES
 
 
 def _consolidation_candidates(store: MemoryStore, config: Config, scope: MemoryScope) -> list:
-    """Rank active memories by value: pinned, then used, then trusted, then new."""
+    """Rank active memories by value: pinned, then used, then corroborated, then trusted, then new."""
     items = [item for item in store.list_items(scope=scope, status="active") if not item.is_expired()]
     if scope == MemoryScope.PROJECT:
         items = [
@@ -642,6 +642,7 @@ def _consolidation_candidates(store: MemoryStore, config: Config, scope: MemoryS
         key=lambda item: (
             bool(item.pinned),
             int(item.use_count or 0),
+            int(getattr(item, "corroborated_count", 0) or 0),
             float(item.confidence or 0.0),
             item.updated or "",
         ),
@@ -938,16 +939,20 @@ def _run_dedup(
     """Cluster near-duplicate active memories and supersede the weaker variants.
 
     Lexical mode keeps the most valuable variant of each cluster (used >
-    trusted > longest > newest). Semantic mode additionally asks the provider
-    to merge each cluster into one canonical English statement, updating the
-    keeper in place. Pinned memories are never removed. Without --apply,
-    only reports what would change.
+    corroborated > trusted > longest > newest). Semantic mode additionally
+    asks the provider to merge each cluster into one canonical English
+    statement, updating the keeper in place. Pinned memories are never
+    removed. Pairs tripping the contradiction guard (asymmetric negation,
+    divergent numbers) are never clustered: they stay active and are
+    reported as needs-review. Without --apply, only reports what would
+    change.
     """
-    from .textutils import meaningful_tokens, jaccard
+    from .textutils import contradiction_guard_tripped, meaningful_tokens, jaccard
 
     threshold = min(1.0, max(0.5, float(threshold)))
     total_superseded = 0
     total_merged = 0
+    total_guarded = 0
     for scope in (MemoryScope.GLOBAL, MemoryScope.PROJECT):
         items = [
             item for item in store.list_items(scope=scope, status="active")
@@ -962,28 +967,38 @@ def _run_dedup(
             continue
         ranked = sorted(items, key=lambda item: (
             int(item.use_count or 0),
+            int(getattr(item, "corroborated_count", 0) or 0),
             float(item.confidence or 0.0),
             len(item.content),
             item.updated or "",
         ), reverse=True)
         kept: list = []
         duplicates: list = []
+        guarded: list = []
         for item in ranked:
             tokens = meaningful_tokens(item.content)
             keeper = None
+            item_guarded: list = []
             if tokens:
                 for kept_item, kept_tokens in kept:
                     if jaccard(tokens, kept_tokens) >= threshold:
+                        if contradiction_guard_tripped(item.content, kept_item.content):
+                            item_guarded.append((item, kept_item))
+                            continue
                         keeper = kept_item
                         break
             if keeper is not None:
                 duplicates.append((item, keeper))
             else:
+                # Guarded pairs stay active as separate keepers; only pairs
+                # that were not clustered anywhere are reported for review.
+                guarded.extend(item_guarded)
                 kept.append((item, tokens))
         label = "global" if scope == MemoryScope.GLOBAL else "project"
-        if not duplicates:
+        if not duplicates and not guarded:
             print(f"[{label}] no near-duplicates found.")
             continue
+        total_guarded += len(guarded)
 
         # Group duplicates by keeper so semantic mode can merge whole clusters.
         clusters: Dict[str, list] = {}
@@ -1014,8 +1029,15 @@ def _run_dedup(
             if semantic and total_merged:
                 suffix = f"; {total_merged} keeper content(s) merged into canonical English"
             print(f"✓ {label}: superseded {len(duplicates)} duplicate memories{suffix} (history kept; `m3m restore` reverses).")
+            if guarded:
+                print(f"  ! {len(guarded)} similar pair(s) kept active for review (possible contradictions):")
+                for item, other in guarded[:5]:
+                    print(f"    ? {item.id} vs {other.id}: {_truncate(item.content, 60)}")
         else:
-            print(f"[dry-run] {label}: would supersede {len(duplicates)} duplicates in {len(clusters)} cluster(s):")
+            if duplicates:
+                print(f"[dry-run] {label}: would supersede {len(duplicates)} duplicates in {len(clusters)} cluster(s):")
+            else:
+                print(f"[dry-run] {label}: nothing to supersede.")
             for keeper_id, members in clusters.items():
                 merged = merged_contents.get(keeper_id)
                 if semantic and merged:
@@ -1024,6 +1046,10 @@ def _run_dedup(
                     print(f"  - keep {keeper_id}")
                 for item in members:
                     print(f"    → supersede {item.id}: {_truncate(item.content, 60)}")
+            if guarded:
+                print(f"  ! {len(guarded)} similar pair(s) would stay active for review (possible contradictions):")
+                for item, other in guarded[:5]:
+                    print(f"    ? {item.id} vs {other.id}: {_truncate(item.content, 60)}")
             print("Run `m3m dedup --apply` to apply.")
     if apply and total_superseded == 0:
         print("Nothing to deduplicate.")
@@ -1041,7 +1067,9 @@ Return ONLY a valid JSON object:
 {"merges": [{"cluster": <cluster number>, "content": "merged English sentence"}]}
 
 Omit a cluster from "merges" when its members are NOT actually duplicates (e.g. they
-only share generic wording). Only merge what is genuinely the same fact.
+only share generic wording). Never merge members that contradict each other
+(opposite directives such as allow vs forbid, or different numbers/thresholds).
+Only merge what is genuinely the same fact.
 """
 
 
@@ -1159,6 +1187,43 @@ def _remember_memory(
             "duplicate_id": duplicate.id,
         })
         return None, duplicate
+
+    # Deterministic near-duplicate check (same band as the extractor): an
+    # explicit remember of something already stored corroborates the keeper
+    # instead of piling another file. Guarded pairs (possible contradictions)
+    # always save normally.
+    from .textutils import contradiction_guard_tripped, jaccard, meaningful_tokens
+    near_threshold = float(getattr(config, "near_duplicate_jaccard", 0.80))
+    new_tokens = meaningful_tokens(normalized)
+    near_duplicate = None
+    if new_tokens:
+        for item in existing_items:
+            if item.status != MemoryStatus.ACTIVE or item.scope != scope or item.type != memory_type:
+                continue
+            if scope == MemoryScope.PROJECT and item.project_id and project_id and item.project_id != project_id:
+                continue
+            if item.pinned:
+                continue
+            if jaccard(new_tokens, meaningful_tokens(item.content)) >= near_threshold and not contradiction_guard_tripped(normalized, item.content):
+                near_duplicate = item
+                break
+    if near_duplicate is not None:
+        try:
+            store.record_corroboration([near_duplicate.id])
+        except Exception:
+            pass
+        try:
+            retriever.reindex()
+        except Exception:
+            pass
+        log_memory_save_diagnostic({
+            **base_diagnostic,
+            "outcome": "duplicate",
+            "stage": "deduplication",
+            "reason": "near_duplicate",
+            "duplicate_id": near_duplicate.id,
+        })
+        return None, near_duplicate
 
     item = MemoryItem(
         id=generate_memory_id(),

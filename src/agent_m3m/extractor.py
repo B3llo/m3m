@@ -11,6 +11,7 @@ from .store import MemoryStore
 from .retriever import MemoryRetriever
 from .llm_runner import LLMRunner
 from .config import Config
+from .textutils import contradiction_guard_tripped
 
 
 EXTRACTION_SYSTEM_PROMPT = """Analyze the provided AI coding session transcript and extract DURABLE, REUSABLE memories.
@@ -91,6 +92,9 @@ class MemoryExtractor:
     # Deterministic near-duplicate threshold: candidate tokens overlap this
     # much with an active memory and the candidate is skipped without an LLM.
     NEAR_DUPLICATE_JACCARD = 0.80
+    # High-confidence paraphrase band: skipped without an LLM call (and the
+    # keeper corroborated), unless the contradiction guard trips.
+    AUTO_SKIP_JACCARD = 0.60
     # Overlap in this band is ambiguous and goes to one bounded reconcile call.
     AMBIGUOUS_JACCARD = 0.30
     # Hard cap on memories per LLM extraction; quality over fragment volume.
@@ -110,6 +114,17 @@ class MemoryExtractor:
         self.store = store or MemoryStore(self.config)
         self.retriever = retriever or MemoryRetriever(self.store, self.config)
         self.llm_runner = llm_runner or LLMRunner(self.config)
+        # Effective reconcile bands: config overrides class defaults, clamped
+        # to preserve ambiguous <= auto <= near ordering.
+        self.near_duplicate_jaccard = float(getattr(self.config, "near_duplicate_jaccard", self.NEAR_DUPLICATE_JACCARD))
+        self.auto_skip_jaccard = float(getattr(self.config, "auto_skip_jaccard", self.AUTO_SKIP_JACCARD))
+        self.ambiguous_jaccard = float(getattr(self.config, "ambiguous_jaccard", self.AMBIGUOUS_JACCARD))
+        self.auto_skip_jaccard = min(self.auto_skip_jaccard, self.near_duplicate_jaccard)
+        self.ambiguous_jaccard = min(self.ambiguous_jaccard, self.auto_skip_jaccard)
+        # Side channel for the most recent _reconcile_with_existing call:
+        # [{index, keeper_id, score, band}] for deterministic SKIP decisions.
+        # extract_from_transcript corroborates these keepers.
+        self.last_auto_skips: List[Dict[str, Any]] = []
         # Public, sanitized outcome of the most recent extraction.  Hooks use
         # this to leave actionable diagnostics without putting provider errors
         # on stdout, which would corrupt the hook protocol response.
@@ -206,10 +221,16 @@ class MemoryExtractor:
         near_duplicate_skips = 0
         update_count = 0
         supersede_count = 0
+        # Keepers re-observed by skipped candidates. Corroborated once after
+        # the loop (bounded, single store pass) instead of per SKIP.
+        corroborated_keepers: List[str] = []
+        corroborated_seed: set = set()
         if idempotency_key:
             partial = self.store.load_effect(idempotency_key)
             if isinstance(partial, dict) and isinstance(partial.get("memory_ids"), list):
                 checkpoint_ids = [value for value in partial["memory_ids"] if isinstance(value, str)]
+            if isinstance(partial, dict) and isinstance(partial.get("corroborated_ids"), list):
+                corroborated_seed = {value for value in partial["corroborated_ids"] if isinstance(value, str)}
         existing_items = self.store.list_items(include_expired=True)
 
         candidates: List[MemoryItem] = []
@@ -229,6 +250,8 @@ class MemoryExtractor:
             if duplicate:
                 if idempotency_key and duplicate.id not in checkpoint_ids:
                     checkpoint_ids.append(duplicate.id)
+                if duplicate.id not in corroborated_keepers:
+                    corroborated_keepers.append(duplicate.id)
                 continue
             candidates.append(item)
 
@@ -246,6 +269,8 @@ class MemoryExtractor:
                 near_duplicate_skips += 1
                 if idempotency_key and target.id not in checkpoint_ids:
                     checkpoint_ids.append(target.id)
+                if target.id not in corroborated_keepers:
+                    corroborated_keepers.append(target.id)
                 continue
 
             if action == "UPDATE" and target is not None and target.status == MemoryStatus.ACTIVE:
@@ -328,6 +353,20 @@ class MemoryExtractor:
                     },
                 )
 
+        # Corroborate re-observed keepers once, after the item loop. Skipped
+        # on retry for keepers already recorded in this job's checkpoint, so a
+        # retried job never double-counts. Fail-closed: a corroboration error
+        # never changes what the extraction saved.
+        corroborated_new: List[str] = []
+        corroboration_error = ""
+        fresh_keepers = [kid for kid in corroborated_keepers if kid not in corroborated_seed]
+        if fresh_keepers:
+            try:
+                self.store.record_corroboration(fresh_keepers)
+                corroborated_new = fresh_keepers
+            except Exception as exc:
+                corroboration_error = scrub_secrets(str(exc))[:300]
+
         if saved_items:
             self.retriever.reindex()
 
@@ -337,6 +376,7 @@ class MemoryExtractor:
                 {
                     "memory_ids": checkpoint_ids,
                     "memory_committed": True,
+                    "corroborated_ids": sorted(corroborated_seed | set(corroborated_new)),
                 },
             )
 
@@ -347,6 +387,12 @@ class MemoryExtractor:
                 "updates": update_count,
                 "supersedes": supersede_count,
                 "near_duplicate_skips": near_duplicate_skips,
+                "auto_skips": [
+                    {"keeper_id": entry["keeper_id"], "score": entry["score"], "band": entry["band"]}
+                    for entry in self.last_auto_skips[:10]
+                ],
+                "corroborated": len(corroborated_new),
+                "corroborated_ids": corroborated_new[:20],
             },
             memories=[
                 {
@@ -358,6 +404,8 @@ class MemoryExtractor:
                 for item in saved_items
             ],
         )
+        if corroboration_error:
+            self.last_diagnostic["reconciled"]["corroboration_error"] = corroboration_error
         return saved_items
 
     def _existing_memory_context(self) -> str:
@@ -397,11 +445,16 @@ class MemoryExtractor:
     ) -> List[Dict[str, Any]]:
         """Decide ADD/UPDATE/SUPERSEDE/SKIP per candidate against active memories.
 
-        Deterministic near-duplicates (Jaccard >= 0.8) are skipped without an
-        LLM call. Ambiguous overlaps get one bounded reconcile call whose
-        failures are fail-open (candidate is added as usual).
+        Deterministic near-duplicates (Jaccard >= near band) are skipped
+        without an LLM call. High-confidence paraphrases (Jaccard >= auto
+        band) are skipped the same way. Pairs tripping the contradiction
+        guard (asymmetric negation/contrast, divergent numbers) always go to
+        the bounded LLM call instead of a silent SKIP, as do pinned keepers
+        in the auto band. Ambiguous overlaps get one bounded reconcile call
+        whose failures are fail-open (candidate is added as usual).
         """
         decisions: List[Dict[str, Any]] = [{"action": "ADD", "id": None} for _ in candidates]
+        self.last_auto_skips = []
         if not candidates:
             return decisions
 
@@ -422,17 +475,40 @@ class MemoryExtractor:
                 ):
                     continue
                 score = self._jaccard(item_tokens, self._meaningful_tokens(existing.content))
-                if score >= self.NEAR_DUPLICATE_JACCARD:
+                if score >= self.near_duplicate_jaccard:
                     best_score, best_existing = score, existing
                     break
-                if score >= self.AMBIGUOUS_JACCARD and score > best_score:
+                if score >= self.ambiguous_jaccard and score > best_score:
                     best_score, best_existing = score, existing
             if best_existing is not None:
                 similarity[index] = (best_score, best_existing)
 
         for index, (score, existing) in list(similarity.items()):
-            if score >= self.NEAR_DUPLICATE_JACCARD:
+            candidate = candidates[index]
+            if score >= self.near_duplicate_jaccard:
+                if contradiction_guard_tripped(candidate.content, existing.content):
+                    # Possible contradiction hiding in high overlap: let the
+                    # LLM decide instead of silently discarding.
+                    continue
                 decisions[index] = {"action": "SKIP", "id": existing.id}
+                self.last_auto_skips.append({
+                    "index": index,
+                    "keeper_id": existing.id,
+                    "score": round(score, 3),
+                    "band": "near_duplicate",
+                })
+                del similarity[index]
+            elif score >= self.auto_skip_jaccard:
+                if existing.pinned or contradiction_guard_tripped(candidate.content, existing.content):
+                    # Pinned keepers and guarded pairs always go to the LLM.
+                    continue
+                decisions[index] = {"action": "SKIP", "id": existing.id}
+                self.last_auto_skips.append({
+                    "index": index,
+                    "keeper_id": existing.id,
+                    "score": round(score, 3),
+                    "band": "auto",
+                })
                 del similarity[index]
 
         if similarity:
