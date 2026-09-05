@@ -11,6 +11,7 @@ from unittest import mock
 from agent_m3m.cli import (
     _run_dedup,
     _run_list,
+    _run_recent,
     _run_reorganize,
     _run_topic_update,
     _run_topics,
@@ -115,6 +116,43 @@ class TopicAndQualityTest(unittest.TestCase):
         output = buffer.getvalue()
         self.assertIn("Webstore related memory sentence.", output)
         self.assertNotIn("Unrelated memory sentence.", output)
+
+    def test_recent_lists_newest_memories_with_timestamp_topic_and_preview(self):
+        old = self._save(
+            "Old memory sentence.",
+            id="mem_old",
+            created="2026-01-01T10:00:00+00:00",
+            updated="2026-01-01T10:00:00+00:00",
+            topic="archive",
+        )
+        newest_content = "Newest memory sentence with enough detail for a useful preview."
+        newest = self._save(
+            newest_content,
+            id="mem_newest",
+            created="2026-01-03T12:30:00+00:00",
+            updated="2026-01-03T12:30:00+00:00",
+            topic="release",
+            scope=MemoryScope.PROJECT,
+        )
+        middle = self._save(
+            "Middle memory sentence.",
+            id="mem_middle",
+            created="2026-01-02T11:15:00+00:00",
+            updated="2026-01-02T11:15:00+00:00",
+        )
+
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            _run_recent(self.store, limit=2)
+        output = buffer.getvalue()
+
+        self.assertIn("Recent memories (2 of 3, newest first)", output)
+        self.assertLess(output.index(newest.id), output.index(middle.id))
+        self.assertNotIn(old.id, output)
+        self.assertIn("2026-01-03 12:30 UTC | topic: release", output)
+        self.assertIn("2026-01-02 11:15 UTC | topic: untagged", output)
+        self.assertIn("[project/preference - active]", output)
+        self.assertIn(newest_content, output)
 
     def test_topics_reports_counts(self):
         self._save("First webstore fact.", topic="webstore")

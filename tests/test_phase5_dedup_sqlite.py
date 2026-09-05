@@ -1,4 +1,4 @@
-"""Phase 5 tests: duplicate prevention (import fuzzy + m3m dedup) and claude-mem SQLite."""
+"""Phase 5 tests: duplicate prevention and legacy SQLite imports."""
 
 import io
 import sqlite3
@@ -145,9 +145,9 @@ class TestDedupCommand(DedupTestBase):
         self.assertIn("no near-duplicates found", output)
 
 
-class TestClaudeMemSqliteImport(DedupTestBase):
+class TestLegacySqliteImport(DedupTestBase):
     def test_imports_rows_from_sqlite_observations(self):
-        db = self.temp_dir_path() / "claude-mem.db"
+        db = self.temp_dir_path() / "memory.db"
         conn = sqlite3.connect(db)
         conn.execute(
             "CREATE TABLE observations (id INTEGER PRIMARY KEY, content TEXT, project TEXT, created_at TEXT)"
@@ -167,22 +167,22 @@ class TestClaudeMemSqliteImport(DedupTestBase):
         self.assertEqual(len(imported), 1)
         item = imported[0]
         self.assertIn("restart the worker", item.content)
-        self.assertIn("claude-mem", item.tags)
+        self.assertIn("legacy-sqlite", item.tags)
         self.assertIn("observations", item.tags)
         self.assertIn("acme", item.tags)
         self.assertEqual(item.scope, MemoryScope.GLOBAL)
 
-    def test_scan_sources_finds_claude_mem_sqlite(self):
+    def test_scan_sources_finds_legacy_sqlite_store(self):
         fake_home = self.temp_dir_path() / "home"
         db_dir = fake_home / ".claude-mem" / "database"
         db_dir.mkdir(parents=True)
-        (db_dir / "claude-mem.db").write_bytes(b"placeholder")
+        (db_dir / "memory.db").write_bytes(b"placeholder")
         importer = MemoryImporter(self.store, self.config)
         importer.config.home_dir = fake_home
 
         labels = [label for label, _path, _count in importer.scan_sources()]
 
-        self.assertTrue(any("claude-mem SQLite" in label for label in labels))
+        self.assertTrue(any("Legacy SQLite memory store" in label for label in labels))
 
     def temp_dir_path(self) -> Path:
         return Path(self.temp_dir.name)

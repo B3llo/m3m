@@ -69,8 +69,8 @@ class TestUniversalImport(unittest.TestCase):
         self.assertEqual(imported[0].scope, MemoryScope.PROJECT)
         self.assertIn("pytest", imported[0].content)
 
-    def test_mem0_style_json_with_memory_key_imports(self):
-        export = self.temp_dir_path() / "mem0-export.json"
+    def test_generic_json_with_memory_key_imports(self):
+        export = self.temp_dir_path() / "memory-export.json"
         export.write_text(json.dumps([
             {"id": "1", "memory": "User prefers dark mode terminals.", "createdAt": "2026-01-01"},
             {"id": "2", "memory": "The deploy pipeline uses GitHub Actions.", "createdAt": "2026-01-02"},

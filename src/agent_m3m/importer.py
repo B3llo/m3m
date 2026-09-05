@@ -1,12 +1,12 @@
 """Importer / Migrator module for m3m.
 
 Imports and migrates legacy memories from popular agent memory sources:
-- jayzeng/agentmemory (~/.agent-memory/)
-- claude-mem / Claude memory (~/.claude/memory/ or ~/.claude-mem/)
+- Legacy Markdown and JSON memory directories
+- Legacy SQLite memory stores
 - Claude Code native auto memory (~/.claude/projects/*/memory/)
 - Project steering files (CLAUDE.md, AGENTS.md, .cursorrules, .windsurfrules,
   .clinerules, .cursor/rules/, .windsurf/rules/, .clinerules/, .agent/rules/)
-- JSON exports from mem0-compatible tools ({"memories": [...]} or lists with
+- Generic JSON exports ({"memories": [...]} or lists with
   content/memory/text keys)
 """
 
@@ -158,18 +158,20 @@ class MemoryImporter:
             if files:
                 sources.append((label, path, len(files)))
 
-        # 1. jayzeng/agentmemory
-        add("jayzeng/agentmemory (~/.agent-memory)", home / ".agent-memory")
+        # 1. Legacy agent memory directory
+        add("Legacy agent memory (~/.agent-memory)", home / ".agent-memory")
 
-        # 2. claude-mem / Claude memory
-        add("claude-mem (~/.claude/memory)", home / ".claude" / "memory")
-        add("claude-mem (~/.claude-mem)", home / ".claude-mem")
+        # 2. Legacy Claude memory directories
+        add("Legacy Claude memory (~/.claude/memory)", home / ".claude" / "memory")
 
-        # 2b. claude-mem SQLite stores (observations/summaries databases)
+        # 2b. Legacy agent memory store
+        add("Legacy agent memory store (~/.claude-mem)", home / ".claude-mem")
+
+        # 2c. Legacy SQLite stores
         for pattern in ("**/*.db", "**/*.sqlite", "**/*.sqlite3"):
             for db_file in (home / ".claude-mem").glob(pattern):
                 if db_file.is_file() and not db_file.name.startswith("."):
-                    sources.append((f"claude-mem SQLite ({db_file.name})", db_file, 1))
+                    sources.append((f"Legacy SQLite memory store ({db_file.name})", db_file, 1))
 
         # 3. Claude Code native auto memory (per-project MEMORY.md + topic files)
         projects_root = home / ".claude" / "projects"
@@ -398,7 +400,7 @@ class MemoryImporter:
         return False
 
     def _parse_sqlite(self, db_path: Path) -> List[MemoryItem]:
-        """Read claude-mem-style SQLite stores defensively (read-only).
+        """Read legacy SQLite memory stores defensively (read-only).
 
         Schema-agnostic: any table with a recognizable text column
         (content/observation/summary/memory/text/fact) yields one memory per
@@ -437,7 +439,7 @@ class MemoryImporter:
                     )
                     if not text:
                         continue
-                    tags = ["migrated", "claude-mem", table]
+                    tags = ["migrated", "legacy-sqlite", table]
                     metadata = row[len(text_columns):]
                     if project_column and len(metadata) > 0 and metadata[0]:
                         tags.append(str(metadata[0]).strip()[:40])

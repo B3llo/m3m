@@ -1,6 +1,7 @@
 """Adversarial regression tests for the final Phase 0 hardening pass."""
 
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import tempfile
 import threading
@@ -107,12 +108,13 @@ class TestPhase0Hardening(unittest.TestCase):
         self.assertEqual(queue_a.counts()["processing"], 1)
 
     def test_stale_recovery_is_serialized_between_workers(self):
-        first = SessionQueue(self.config, lease_seconds=0.05)
-        second = SessionQueue(self.config, lease_seconds=0.05)
-        entry = first.enqueue(payload={"transcript": "stale job"})
-        claimed = first.claim_next()
-        self.assertEqual(claimed.job_id, entry.job_id)
-        time.sleep(0.08)
+        initial_time = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        first = SessionQueue(self.config, lease_seconds=1)
+        second = SessionQueue(self.config, lease_seconds=1)
+        with mock.patch("agent_m3m.queue._utc_now", return_value=initial_time):
+            entry = first.enqueue(payload={"transcript": "stale job"})
+            claimed = first.claim_next()
+            self.assertEqual(claimed.job_id, entry.job_id)
 
         barrier = threading.Barrier(3)
         claims = []
@@ -121,12 +123,14 @@ class TestPhase0Hardening(unittest.TestCase):
             barrier.wait()
             claims.append(queue.claim_next())
 
-        workers = [threading.Thread(target=recover, args=(queue,)) for queue in (first, second)]
-        for worker in workers:
-            worker.start()
-        barrier.wait()
-        for worker in workers:
-            worker.join(timeout=2)
+        after_expiry = initial_time + timedelta(seconds=2)
+        with mock.patch("agent_m3m.queue._utc_now", return_value=after_expiry):
+            workers = [threading.Thread(target=recover, args=(queue,)) for queue in (first, second)]
+            for worker in workers:
+                worker.start()
+            barrier.wait()
+            for worker in workers:
+                worker.join(timeout=2)
 
         recovered = [item for item in claims if item is not None]
         self.assertEqual(len(recovered), 1)

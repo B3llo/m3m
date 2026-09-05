@@ -1,6 +1,7 @@
 """Regression tests for the Phase 0 safety and durability remediation."""
 
 import json
+from datetime import datetime, timedelta, timezone
 import threading
 import time
 import tempfile
@@ -220,24 +221,51 @@ class TestPhase0Remediation(unittest.TestCase):
         self.assertEqual(queue.counts()["failed"], 1)
 
     def test_active_lease_prevents_second_worker_and_heartbeat_allows_long_job(self):
+        initial_time = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        current_time = [initial_time]
+        clock_lock = threading.Lock()
+
+        def now():
+            with clock_lock:
+                return current_time[0]
+
         queue_a = SessionQueue(self.config, lease_seconds=0.05)
         queue_b = SessionQueue(self.config, lease_seconds=0.05)
-        queue_a.enqueue(payload={"transcript": "long job"})
         started = threading.Event()
+        heartbeat_renewed = threading.Event()
         release = threading.Event()
         report = []
 
+        original_renew = queue_a.renew
+
+        def renew_after_initial_lease(job_id, owner_token=None):
+            with clock_lock:
+                current_time[0] = initial_time + timedelta(seconds=0.06)
+            renewed = original_renew(job_id, owner_token)
+            if renewed:
+                heartbeat_renewed.set()
+            return renewed
+
+        def process_entry(_entry):
+            started.set()
+            release.wait()
+            return "done"
+
         def process_long_job():
-            report.append(queue_a.process(
-                lambda _entry: (started.set(), release.wait(0.18), "done")[2]
-            ))
-        worker = threading.Thread(target=process_long_job)
-        worker.start()
-        self.assertTrue(started.wait(1))
-        time.sleep(0.10)
-        self.assertIsNone(queue_b.claim_next())
-        release.set()
-        worker.join(timeout=2)
+            report.append(queue_a.process(process_entry))
+
+        with mock.patch("agent_m3m.queue._utc_now", side_effect=now):
+            queue_a.enqueue(payload={"transcript": "long job"})
+            with mock.patch.object(queue_a, "renew", side_effect=renew_after_initial_lease):
+                worker = threading.Thread(target=process_long_job)
+                worker.start()
+                try:
+                    self.assertTrue(started.wait(1))
+                    self.assertTrue(heartbeat_renewed.wait(1))
+                    self.assertIsNone(queue_b.claim_next())
+                finally:
+                    release.set()
+                    worker.join(timeout=2)
 
         self.assertFalse(worker.is_alive())
         self.assertEqual(report[0].processed, 1)

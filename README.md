@@ -93,7 +93,9 @@ m3m import --path ./CLAUDE.md
 - **Claude Code native auto memory** (`~/.claude/projects/*/memory/` — `user`/`feedback`/`project`/`reference` types are mapped to m3m types)
 - **CLAUDE.md / AGENTS.md** (any flavor): sections, bullets and prose — no more 1000-char drop
 - **Cursor** (`.cursorrules`, `.cursor/rules/*.mdc`), **Windsurf** (`.windsurfrules`, `.windsurf/rules/`), **Cline** (`.clinerules`)
-- **claude-mem / jayzeng/agentmemory** directories and **claude-mem SQLite databases** (`observations`/`summaries` tables, read-only, schema-agnostic) and **mem0-style JSON exports** (`{"memories": [...]}` with `content`/`memory`/`text` keys)
+- **Legacy Markdown and JSON memory directories**
+- **Legacy SQLite memory databases** (`observations`/`summaries` tables, read-only, schema-agnostic)
+- **Generic JSON memory exports** (`{"memories": [...]}` with `content`/`memory`/`text` keys)
 
 Imports are fuzzy-deduplicated: paraphrases of memories you already have (or of other rows in the same batch, Jaccard ≥ 0.80) are dropped instead of piling up. Preview before writing with `m3m import --dry-run`; imports are idempotent. Clean up historical duplicates with `m3m dedup [--apply]`. Export back out with `m3m export --format agents-md`.
 
@@ -176,6 +178,7 @@ m3m doctor
 | `m3m save [--stdin]` | Extract and save durable memories. The Codex hook uses direct `Stop` capture; `--require-approval` keeps extracted items pending. |
 | `m3m queue process [--retry-failed]` | Process durable SessionEnd captures explicitly; scheduler subcommands are available on macOS. |
 | `m3m list` | List active memories grouped by type with topic notes. Cut previews end in `…`; use `--full` for everything, `--topic SLUG` / `--type TYPE` to filter. |
+| `m3m recent [--limit 10]` | Show the newest memories across global and project scopes, with save time, topic and content preview. Use `--scope`, `--status` or `--full` when needed. |
 | `m3m show <id>` | Print full Markdown & YAML frontmatter of a memory by ID. |
 | `m3m forget <id>` | Archive a memory by setting its status to `archived`. |
 | `m3m forget --pending` | Reject all pending memories at once (interactive confirmation; reversible via `m3m restore <id>`). |

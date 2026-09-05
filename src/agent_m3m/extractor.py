@@ -96,7 +96,7 @@ class MemoryExtractor:
     # Hard cap on memories per LLM extraction; quality over fragment volume.
     MAX_LLM_MEMORIES = 8
     # How many recent active memories are shown to the extractor so it can
-    # refine instead of duplicating (Mem0-style write-time conflict awareness).
+    # Refine an existing memory instead of duplicating it at write time.
     EXISTING_CONTEXT_LIMIT = 25
 
     def __init__(

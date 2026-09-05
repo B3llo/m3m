@@ -7,7 +7,7 @@ import re
 import subprocess
 import sys
 import copy
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
@@ -749,6 +749,44 @@ def _run_list(
         print()
 
 
+def _memory_created_at(item: MemoryItem) -> datetime:
+    """Return a comparable UTC creation time, placing invalid legacy values last."""
+    try:
+        created = datetime.fromisoformat(str(item.created).replace("Z", "+00:00"))
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        return created.astimezone(timezone.utc)
+    except (TypeError, ValueError, OverflowError):
+        return datetime.min.replace(tzinfo=timezone.utc)
+
+
+def _run_recent(
+    store: MemoryStore,
+    limit: int = 10,
+    scope: Optional[MemoryScope] = None,
+    status: Optional[MemoryStatus] = None,
+    full: bool = False,
+) -> None:
+    """Show the newest saved memories across global and project scopes."""
+    items = store.list_items(scope=scope, status=status, include_expired=True)
+    items.sort(key=lambda item: (_memory_created_at(item), item.id), reverse=True)
+    visible = items[:max(0, limit)]
+
+    print(f"Recent memories ({len(visible)} of {len(items)}, newest first):\n")
+    for index, item in enumerate(visible, 1):
+        created = _memory_created_at(item)
+        saved_at = "unknown"
+        if created != datetime.min.replace(tzinfo=timezone.utc):
+            saved_at = created.strftime("%Y-%m-%d %H:%M UTC")
+        topic = item.topic or "untagged"
+        print(f"{index}. {saved_at} | topic: {topic}")
+        print(f"   {item.id} [{item.scope.value}/{item.type.value} - {item.status.value}]")
+        body = item.content if full else _truncate(item.content)
+        for line in body.splitlines() if full else [body]:
+            print(f"   {line}")
+        print()
+
+
 def _run_topics(store: MemoryStore) -> None:
     """Show topic taxonomy with active counts across scopes."""
     items = [
@@ -1384,6 +1422,12 @@ def _build_parser(prog: str = "m3m") -> argparse.ArgumentParser:
     list_parser.add_argument("--type", dest="memory_type", choices=[memory_type.value for memory_type in MemoryType])
     list_parser.add_argument("--full", action="store_true", help="Show full memory content instead of a truncated preview")
 
+    recent_parser = subparsers.add_parser("recent", help="Show newest memories with timestamps, topics and previews")
+    recent_parser.add_argument("--limit", type=int, default=10, help="Maximum memories to show (default: 10)")
+    recent_parser.add_argument("--scope", choices=["global", "project"])
+    recent_parser.add_argument("--status", choices=["active", "pending", "superseded", "archived"])
+    recent_parser.add_argument("--full", action="store_true", help="Show full memory content instead of a truncated preview")
+
     topics_parser = subparsers.add_parser("topics", help="Show topic taxonomy with active counts")
     topics_parser.add_argument(
         "--build",
@@ -1966,6 +2010,16 @@ def main():
             full=args.full,
             topic=args.topic,
             memory_type=MemoryType(args.memory_type) if args.memory_type else None,
+        )
+        return
+
+    if args.command == "recent":
+        _run_recent(
+            store,
+            limit=args.limit,
+            scope=MemoryScope(args.scope) if args.scope else None,
+            status=MemoryStatus(args.status) if args.status else None,
+            full=args.full,
         )
         return
 
