@@ -8,6 +8,20 @@
     {"id": "cache-expiry", "query": "Redis session cache expiration", "memory": "Redis session cache entries expire after 24 hours."},
     {"id": "test-runner", "query": "modern TypeScript unit test runner", "memory": "Modern TypeScript projects use Vitest for unit tests."},
     {"id": "preview-environment", "query": "sample application preview environment", "memory": "The sample application uses isolated preview environments."},
-    {"id": "safe-release", "query": "what must run before pushing the main branch", "memory": "Run the complete test suite before pushing changes to the main branch."}
+    {"id": "safe-release", "query": "what must run before pushing the main branch", "memory": "Run the complete test suite before pushing changes to the main branch."},
+    {"id": "pix-refund", "query": "qual o prazo de reembolso Pix no billing-api", "memory": "The billing-api service settles Pix refunds within one business day."},
+    {"id": "deploy-storefront", "query": "como fazer deploy da storefront com tags imutáveis", "memory": "The storefront deployment pipeline must publish immutable image tags derived from the commit SHA."},
+    {"id": "pytest-unit", "query": "como rodar testes unitários com pytest", "memory": "The checkout service runs unit tests with pytest using the unit marker."},
+    {"id": "vitest-migration", "query": "migração de Jest para Vitest no frontend", "memory": "The frontend workspace migrated unit tests from Jest to Vitest."},
+    {"id": "postgres-concurrent", "query": "criar índice Postgres em produção sem downtime", "memory": "The billing-api production migrations create PostgreSQL indexes concurrently without downtime."},
+    {"id": "docker-nonroot", "query": "política de usuário não-root nos containers Docker", "memory": "The storefront Docker images run application processes as a non-root user."},
+    {"id": "pydantic-responses", "query": "padronizar respostas FastAPI com Pydantic", "memory": "The billing-api FastAPI endpoints return typed Pydantic response models."},
+    {"id": "redis-sessions", "query": "expiração do cache de sessão Redis", "memory": "The auth service expires Redis session cache entries after 24 hours."},
+    {"id": "preview-env", "query": "ambiente de preview por PR no sample app", "memory": "The sample application provisions isolated preview environments per pull request."},
+    {"id": "main-gate", "query": "o que rodar antes de dar push na main", "memory": "The repository requires the complete test suite before pushing changes to the main branch."},
+    {"id": "orbitpm-js", "query": "qual gerenciador de pacotes usar no JavaScript orbitpm", "memory": "The frontend workspace uses orbitpm as the JavaScript package manager."},
+    {"id": "uv-python", "query": "usar uv em vez de poetry no Python", "memory": "The billing-api Python services use uv instead of poetry for dependency management."},
+    {"id": "code-review-pt", "query": "correção: não faça push direto na main, abra PR", "memory": "The repository policy forbids direct pushes to the main branch and requires a pull request."},
+    {"id": "opencode-timeout", "query": "timeout do hook de memória no OpenCode", "memory": "The OpenCode memory harness injects context before the first token with a ten second timeout."}
   ]
 }

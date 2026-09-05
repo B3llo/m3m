@@ -156,7 +156,7 @@ class ContextBuilder:
         already_injected = set(injected_ids)
         project_items = [
             item for item in self.store.list_items(scope=MemoryScope.PROJECT, status="active")
-            if item.id not in already_injected
+            if item.id not in already_injected and not item.is_expired()
         ]
         project_items.sort(key=lambda item: item.updated, reverse=True)
         if project_items:

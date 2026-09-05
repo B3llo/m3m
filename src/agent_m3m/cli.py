@@ -35,11 +35,69 @@ def _truncate(text: str, limit: int = 160) -> str:
     return flat[: max(0, limit - 1)].rstrip() + "…"
 
 
+LOG_ROTATE_MAX_BYTES = 5 * 1024 * 1024
+LOG_ROTATE_KEEP = 2
+
+
+def _rotate_log_if_large(log_file: Path, max_bytes: int = LOG_ROTATE_MAX_BYTES) -> bool:
+    """Rotate a hook log when it exceeds max_bytes, keeping bounded history.
+
+    Shifts `<name>.1` -> `<name>.2` (dropping the oldest) and `<name>` ->
+    `<name>.1`. Fail-open: any error means no rotation. Returns True when
+    a rotation happened.
+    """
+    try:
+        if not log_file.is_file() or log_file.stat().st_size <= max_bytes:
+            return False
+        oldest = log_file.with_name(log_file.name + f".{LOG_ROTATE_KEEP}")
+        try:
+            oldest.unlink()
+        except FileNotFoundError:
+            pass
+        for index in range(LOG_ROTATE_KEEP - 1, 0, -1):
+            src = log_file.with_name(log_file.name + f".{index}")
+            dst = log_file.with_name(log_file.name + f".{index + 1}")
+            try:
+                os.replace(src, dst)
+            except FileNotFoundError:
+                continue
+        os.replace(log_file, log_file.with_name(log_file.name + ".1"))
+        return True
+    except OSError:
+        return False
+
+
+def _tail_lines(log_file: Path, limit: int, chunk_bytes: int = 64 * 1024) -> list[str]:
+    """Read the last `limit` lines without loading the whole file.
+
+    Seeks from the end in chunks so multi-GB diagnostic logs stay cheap for
+    `m3m diagnostics --limit 20`.
+    """
+    count = max(1, limit)
+    try:
+        with log_file.open("rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            buf = b""
+            pos = size
+            while pos > 0 and buf.count(b"\n") <= count:
+                step = min(chunk_bytes, pos)
+                pos -= step
+                handle.seek(pos)
+                buf = handle.read(step) + buf
+                if pos == 0:
+                    break
+        return buf.decode("utf-8", errors="replace").splitlines()[-count:]
+    except OSError:
+        return []
+
+
 def log_hook_event(msg: str):
     """Write fail-open hook diagnostics outside command stdout."""
     try:
         log_file = Path.home() / ".agent-m3m" / "sessions" / "m3m_hooks.log"
         log_file.parent.mkdir(parents=True, exist_ok=True)
+        _rotate_log_if_large(log_file)
         with log_file.open("a", encoding="utf-8") as handle:
             handle.write(f"[{datetime.now().isoformat()}] {msg}\n")
     except OSError:
@@ -64,6 +122,7 @@ def log_memory_save_diagnostic(diagnostic: Dict[str, Any]) -> None:
     try:
         log_file = Path.home() / ".agent-m3m" / "sessions" / "memory-save-diagnostics.jsonl"
         log_file.parent.mkdir(parents=True, exist_ok=True)
+        _rotate_log_if_large(log_file)
         record = {
             "timestamp": datetime.now().astimezone().isoformat(),
             **{str(key)[:100]: sanitize_value(value) for key, value in diagnostic.items()},
@@ -80,13 +139,42 @@ def _read_memory_save_diagnostics(limit: int) -> list[Dict[str, Any]]:
         return []
     records: list[Dict[str, Any]] = []
     try:
-        for line in log_file.read_text(encoding="utf-8").splitlines()[-max(1, limit):]:
-            parsed = json.loads(line)
+        for line in _tail_lines(log_file, max(1, limit)):
+            try:
+                parsed = json.loads(line)
+            except ValueError:
+                continue
             if isinstance(parsed, dict):
                 records.append(parsed)
     except (OSError, ValueError):
         return []
     return records
+
+
+def _prune_old_files(directory: Path, older_than_days: int, dry_run: bool = True) -> tuple[list[Path], list[Path]]:
+    """Collect (and optionally delete) *.json files older than the cutoff.
+
+    Returns (would_delete, deleted). Never touches non-JSON files.
+    """
+    cutoff = datetime.now().astimezone() - timedelta(days=max(0, older_than_days))
+    candidates: list[Path] = []
+    if directory.is_dir():
+        for path in sorted(directory.glob("*.json")):
+            try:
+                mtime = datetime.fromtimestamp(path.stat().st_mtime).astimezone()
+            except (OSError, ValueError, OverflowError):
+                continue
+            if mtime < cutoff:
+                candidates.append(path)
+    deleted: list[Path] = []
+    if not dry_run:
+        for path in candidates:
+            try:
+                path.unlink()
+                deleted.append(path)
+            except OSError:
+                continue
+    return candidates, deleted
 
 
 def run_interactive_setup(config: Config, store: MemoryStore):
@@ -612,7 +700,7 @@ def _build_agents_md(items: list) -> str:
         (MemoryType.TOOL, "Tools"),
         (MemoryType.PROJECT_FACT, "Project Facts"),
     ]
-    active = [item for item in items if item.status == MemoryStatus.ACTIVE]
+    active = [item for item in items if item.status == MemoryStatus.ACTIVE and not item.is_expired()]
     for mtype, title in order:
         group = [item for item in active if item.type == mtype]
         if not group:
@@ -682,6 +770,8 @@ def _build_index_markdown(title: str, items: list) -> str:
                 flags.append("pinned")
             if item.use_count:
                 flags.append(f"used {item.use_count}x")
+            if item.is_expired():
+                flags.append("expired")
             suffix = f" ({', '.join(flags)})" if flags else ""
             lines.append(f"- {_truncate(item.content, 140)} (id={item.id}){suffix}")
         lines.append("")
@@ -1374,6 +1464,11 @@ def _build_parser(prog: str = "m3m") -> argparse.ArgumentParser:
     context_parser.add_argument("--prompt", help="Prompt used for progressive archival retrieval")
     context_parser.add_argument("--hook-event", default="SessionStart", help=argparse.SUPPRESS)
     context_parser.add_argument("--hook-output", action="store_true", help=argparse.SUPPRESS)
+    context_parser.add_argument(
+        "--no-record-usage",
+        action="store_true",
+        help="Do not bump use_count/last_used for injected memories (for high-frequency hooks; default records usage)",
+    )
 
     search_parser = subparsers.add_parser("search", help="Search memories using local FTS5")
     search_parser.add_argument("query", type=str)
@@ -1536,7 +1631,22 @@ def _build_parser(prog: str = "m3m") -> argparse.ArgumentParser:
     )
 
     subparsers.add_parser("reindex", help="Rebuild the disposable SQLite index")
-    subparsers.add_parser("clean", help="Validate memory files and rebuild the index")
+    clean_parser = subparsers.add_parser("clean", help="Validate memory files and rebuild the index")
+    clean_parser.add_argument(
+        "--prune-logs",
+        action="store_true",
+        help="Rotate hook logs larger than 5MB (dry run unless --apply is given)",
+    )
+    clean_parser.add_argument(
+        "--prune-queue",
+        action="store_true",
+        help="Delete finished queue/effect files older than 30 days (dry run unless --apply is given)",
+    )
+    clean_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Actually delete/rotate instead of only reporting",
+    )
     stats_parser = subparsers.add_parser("stats", help="Show storage counts")
     stats_parser.add_argument("--json", action="store_true")
     export_parser = subparsers.add_parser("export", help="Export current memories without changing storage")
@@ -1845,7 +1955,11 @@ def main():
             context_retriever = MemoryRetriever(store, context_config)
         builder = ContextBuilder(store, context_retriever, context_config)
         displayed_handoff = builder.handoffs.load()
-        context = builder.build_context(prompt=prompt, event_source=source)
+        context = builder.build_context(
+            prompt=prompt,
+            event_source=source,
+            record_usage=not getattr(args, "no_record_usage", False),
+        )
         if args.hook_output:
             print(json.dumps({
                 "continue": True,
@@ -2228,6 +2342,44 @@ def main():
             print("Validation errors:")
             for error in store.last_errors:
                 print(f"- {error}")
+        if args.command == "clean" and (getattr(args, "prune_logs", False) or getattr(args, "prune_queue", False)):
+            apply = bool(getattr(args, "apply", False))
+            verb = "pruned" if apply else "would prune"
+            if getattr(args, "prune_logs", False):
+                for log_file in (
+                    Path.home() / ".agent-m3m" / "sessions" / "m3m_hooks.log",
+                    Path.home() / ".agent-m3m" / "sessions" / "memory-save-diagnostics.jsonl",
+                ):
+                    try:
+                        size = log_file.stat().st_size if log_file.is_file() else 0
+                    except OSError:
+                        size = 0
+                    if size > LOG_ROTATE_MAX_BYTES:
+                        if apply:
+                            rotated = _rotate_log_if_large(log_file)
+                            print(f"✓ {verb} {log_file} ({size / 1024 / 1024:.1f}MB, rotated={rotated})")
+                        else:
+                            print(f"[dry-run] {verb} {log_file} ({size / 1024 / 1024:.1f}MB). Run with --apply to rotate.")
+                    else:
+                        print(f"- {log_file} is {size / 1024:.0f}KB (under 5MB, kept)")
+            if getattr(args, "prune_queue", False):
+                roots = [config.project_dir, config.global_dir]
+                for base in roots:
+                    if not base:
+                        continue
+                    for sub, label in (
+                        ("sessions/queue/done", "finished queue jobs"),
+                        ("sessions/memory-effects", "memory effect checkpoints"),
+                    ):
+                        directory = base / sub
+                        candidates, deleted = _prune_old_files(directory, 30, dry_run=not apply)
+                        if candidates:
+                            if apply:
+                                print(f"✓ {verb} {len(deleted)}/{len(candidates)} {label} older than 30d in {directory}")
+                            else:
+                                print(f"[dry-run] {verb} {len(candidates)} {label} older than 30d in {directory}. Run with --apply.")
+                        else:
+                            print(f"- no {label} older than 30d in {directory}")
         return
 
     if args.command == "stats":

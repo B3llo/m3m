@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "m3m context --hook-output --hook-event UserPromptSubmit",
+            "command": "m3m context --hook-output --hook-event UserPromptSubmit --no-record-usage",
             "timeout": 3
           }
         ]

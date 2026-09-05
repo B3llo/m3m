@@ -120,6 +120,103 @@ class Doctor:
             pending_count == 0,
         ))
 
+        # 8. Config permissions (POSIX): config holds api_key material.
+        try:
+            cfg_path = self.config.config_file
+            if cfg_path.is_file() and os.name == "posix":
+                mode = cfg_path.stat().st_mode & 0o777
+                if mode & 0o077:
+                    results.append((
+                        "Config Permissions",
+                        f"{cfg_path} is mode {oct(mode)} (run chmod 600 {cfg_path})",
+                        False,
+                    ))
+                else:
+                    results.append(("Config Permissions", f"{cfg_path} is owner-only ({oct(mode)})", True))
+            else:
+                results.append(("Config Permissions", "No config file to check" if not cfg_path.is_file() else "Permission check skipped (non-POSIX)", True))
+        except OSError:
+            results.append(("Config Permissions", "Could not stat config file", True))
+
+        # 9. Log hygiene (warn-only thresholds): hook logs grow unbounded.
+        try:
+            log_paths = []
+            for base in {self.config.global_dir, self.config.project_dir}:
+                if base:
+                    log_paths.append(base / "sessions" / "m3m_hooks.log")
+                    log_paths.append(base / "sessions" / "memory-save-diagnostics.jsonl")
+            # Legacy default location when global_dir differs (kept for visibility).
+            legacy = Path.home() / ".agent-m3m" / "sessions"
+            log_paths.append(legacy / "m3m_hooks.log")
+            log_paths.append(legacy / "memory-save-diagnostics.jsonl")
+            total_bytes = 0
+            biggest = None
+            seen = set()
+            for path in log_paths:
+                try:
+                    resolved = path.resolve()
+                except OSError:
+                    resolved = path
+                if resolved in seen:
+                    continue
+                seen.add(resolved)
+                try:
+                    if path.is_file():
+                        size = path.stat().st_size
+                        total_bytes += size
+                        if biggest is None or size > biggest[1]:
+                            biggest = (path, size)
+                except OSError:
+                    continue
+            if total_bytes > 10 * 1024 * 1024:
+                where = f"{biggest[0]} ({biggest[1] / 1024 / 1024:.1f}MB)" if biggest else "hook logs"
+                results.append((
+                    "Log Hygiene",
+                    f"Hook logs total {total_bytes / 1024 / 1024:.1f}MB; largest {where} (prune with `m3m clean --prune-logs --apply`)",
+                    False,
+                ))
+            else:
+                results.append((
+                    "Log Hygiene",
+                    f"Hook logs total {total_bytes / 1024:.0f}KB (prune threshold 10MB)",
+                    True,
+                ))
+        except Exception:
+            results.append(("Log Hygiene", "Could not measure hook logs", True))
+
+        # 10. Queue hygiene (warn-only thresholds): done/failed retain forever.
+        try:
+            queue_base = self.config.project_dir / "sessions" / "queue" if self.config.project_dir else None
+            if queue_base and queue_base.exists():
+                counts = {}
+                total = 0
+                for state in ("pending", "processing", "failed", "done", "quarantine"):
+                    try:
+                        n = len(list((queue_base / state).glob("*.json")))
+                    except OSError:
+                        n = 0
+                    counts[state] = n
+                    total += n
+                failed = counts.get("failed", 0)
+                done = counts.get("done", 0)
+                if failed > 20 or done > 200 or total > 500:
+                    results.append((
+                        "Queue Hygiene",
+                        f"Queue has pending={counts.get('pending', 0)} failed={failed} done={done} total={total} "
+                        "(recover with `m3m queue process --retry-failed`; prune done with `m3m clean --prune-queue --apply`)",
+                        False,
+                    ))
+                else:
+                    results.append((
+                        "Queue Hygiene",
+                        f"Queue healthy (pending={counts.get('pending', 0)} failed={failed} done={done})",
+                        True,
+                    ))
+            else:
+                results.append(("Queue Hygiene", "No project queue directory to check", True))
+        except Exception:
+            results.append(("Queue Hygiene", "Could not measure queue directories", True))
+
         if verify_provider:
             provider_ok, provider_message = LLMRunner(self.config).verify_provider(live=True)
             results.append(("Provider Live Check", provider_message, provider_ok))

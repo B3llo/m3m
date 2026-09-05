@@ -108,7 +108,10 @@ export const M3mMemoryPlugin = async ({ client }) => ({
     if (context === undefined) {
       const prompt = sessionPrompt.get(sessionID);
       try {
-        context = (await runM3m(prompt ? ["context", "--prompt", prompt] : ["context"])).trim();
+        // Per-turn injection runs on every LLM request: skip usage writes to
+        // avoid rewriting memory files under hook bursts. SessionStart hooks
+        // and manual `m3m context` keep the reinforcement signal.
+        context = (await runM3m(prompt ? ["context", "--prompt", prompt, "--no-record-usage"] : ["context", "--no-record-usage"])).trim();
         sessionContext.set(sessionID, context);
       } catch (error) {
         await client.app.log({ body: { service: "m3m", level: "warn", message: `context injection failed: ${error.message}` } });
